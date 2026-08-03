@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Life OS</title>
+  <meta name="theme-color" content="#F7F6F3">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Life OS">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <div id="app">
+    <header class="header" id="header"></header>
+    <main id="view"></main>
+  </div>
+
+  <nav class="bottom-nav" id="nav" hidden>
+    <button data-route="today"><span class="nav-ico">☀️</span>Today</button>
+    <button data-route="tasks"><span class="nav-ico">✅</span>Tasks</button>
+    <button data-route="calendar"><span class="nav-ico">📅</span>Calendar</button>
+    <button data-route="people"><span class="nav-ico">👋</span>People</button>
+    <button data-route="more"><span class="nav-ico">⋯</span>More</button>
+  </nav>
+
+  <button class="fab" id="fab" hidden aria-label="Add">＋</button>
+
+  <div id="sheet-container"></div>
+  <div id="toast-container"></div>
+  <div id="offline-banner" class="offline-banner" hidden>You're offline — changes won't save</div>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

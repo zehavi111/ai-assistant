@@ -1,0 +1,52 @@
+/* Design tokens — the entire look lives here. */
+:root {
+  --bg: #F7F6F3;
+  --surface: #FFFFFF;
+  --surface-2: #F0EEE9;
+  --text: #1C1B1A;
+  --text-dim: #78746E;
+  --accent: #5B5BD6;
+  --accent-soft: #EDEDFB;
+  --danger: #D64545;
+  --danger-soft: #FBEDED;
+  --success: #3D9A6C;
+  --success-soft: #EAF5EF;
+  --warning: #D68F2C;
+  --border: #E7E4DF;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.07);
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --r-card: 16px;
+  --r-pill: 999px;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --fs-title: 28px;
+  --fs-body: 17px;
+  --fs-secondary: 15px;
+  --fs-label: 13px;
+
+  --nav-h: 62px;
+}
+
+[data-theme="dark"] {
+  --bg: #141416;
+  --surface: #1E1E22;
+  --surface-2: #26262B;
+  --text: #F0EEEA;
+  --text-dim: #9C99A0;
+  --accent: #8788EE;
+  --accent-soft: #2B2B45;
+  --danger: #E06C6C;
+  --danger-soft: #3A2426;
+  --success: #5CB88C;
+  --success-soft: #1F3229;
+  --warning: #E0A852;
+  --border: #2C2C31;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.3);
+}
