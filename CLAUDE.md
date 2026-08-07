@@ -48,3 +48,5 @@ Smoke test: `GET /api/health` → `{"status":"ok","db":"ok"}`.
 ## Deploy
 
 Render free tier via `render.yaml` + free Neon Postgres. Env vars: `DATABASE_URL`, `APP_PASSWORD`, `SECRET_KEY`. See README for steps.
+
+Live service: `srv-d9qsc0u417fc738341tg` → https://life-os-li19.onrender.com. Auto-deploys on push to `main`. Note: for a few minutes after a service is first created, Render's edge intermittently returns 404 with `x-render-routing: no-server` while routing propagates — the app is fine, it settles on its own.
