@@ -7,13 +7,29 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_auth
 from app.db import get_db
-from app.models import Task, TaskCompletion
-from app.recurrence import advance_due_date, compute_streak
+from app.models import Section, Task, TaskCompletion, TaskSkip
+from app.recurrence import (
+    advance_due_date,
+    compute_streak,
+    next_unresolved,
+    parse_weekdays,
+    pending_occurrences,
+)
 from app.schemas import TaskCreate, TaskOut, TaskUpdate
 
 router = APIRouter(
     prefix="/api/tasks", tags=["tasks"], dependencies=[Depends(require_auth)]
 )
+
+
+def _resolved_dates(db: Session, task_id: int, since: date | None = None) -> set[date]:
+    """Completion + skip dates for a task (optionally only >= since)."""
+    cq = select(TaskCompletion.date).where(TaskCompletion.task_id == task_id)
+    sq = select(TaskSkip.date).where(TaskSkip.task_id == task_id)
+    if since:
+        cq = cq.where(TaskCompletion.date >= since)
+        sq = sq.where(TaskSkip.date >= since)
+    return set(db.scalars(cq)) | set(db.scalars(sq))
 
 
 def task_out(db: Session, t: Task, for_date: date | None = None) -> TaskOut:
@@ -25,6 +41,18 @@ def task_out(db: Session, t: Task, for_date: date | None = None) -> TaskOut:
             )
         )
         out.done_today = done is not None
+    if t.kind == "recurring" and for_date and t.next_due:
+        resolved = _resolved_dates(db, t.id, since=t.next_due)
+        out.pending_dates = [
+            d.isoformat()
+            for d in pending_occurrences(
+                t.recur_unit, t.recur_interval, t.recur_weekdays,
+                t.next_due, for_date, resolved,
+            )
+        ]
+    if t.section_id:
+        s = db.get(Section, t.section_id)
+        out.section_name = s.name if s else None
     if t.kind == "project":
         out.subtask_total = (
             db.scalar(select(func.count()).where(Task.parent_id == t.id)) or 0
@@ -48,23 +76,25 @@ def _recompute_streak(db: Session, t: Task, today: date) -> None:
 
 
 def _resync_next_due(db: Session, t: Task, undone_date: date | None = None) -> None:
-    """next_due = next occurrence after the latest completion.
+    """next_due = earliest unresolved occurrence (resolved = completed or skipped).
 
-    Backfilling a past date never skips a still-pending occurrence, and
-    completing the same day twice never double-advances.
+    Resolving a middle pending date leaves older pending dates in place;
+    un-resolving a date re-pends it; double-resolving the same day is stable.
     """
-    latest = db.scalar(
-        select(func.max(TaskCompletion.date)).where(TaskCompletion.task_id == t.id)
-    )
-    candidates = []
-    if latest:
-        candidates.append(
-            advance_due_date(t.recur_unit, t.recur_interval, t.recur_weekdays, latest)
-        )
-    if undone_date:
-        candidates.append(undone_date)  # the undone occurrence is pending again
+    resolved = _resolved_dates(db, t.id)
+    candidates = [d for d in (t.next_due, undone_date) if d]
     if candidates:
-        t.next_due = min(candidates)
+        start = min(candidates)
+    elif resolved:
+        # Legacy: next_due was never set — restart after the latest resolved date.
+        start = advance_due_date(
+            t.recur_unit, t.recur_interval, t.recur_weekdays, max(resolved)
+        )
+    else:
+        return
+    t.next_due = next_unresolved(
+        t.recur_unit, t.recur_interval, t.recur_weekdays, start, resolved
+    )
 
 
 @router.get("", response_model=list[TaskOut])
@@ -90,27 +120,30 @@ def list_tasks(
 
 
 @router.post("", response_model=TaskOut)
-def create_task(body: TaskCreate, db: Session = Depends(get_db)):
+def create_task(
+    body: TaskCreate,
+    date_param: date | None = Query(None, alias="date"),
+    db: Session = Depends(get_db),
+):
+    today = date_param or date.today()  # client's local date when provided
     t = Task(**body.model_dump())
     if t.kind == "daily":
         t.recur_unit = t.recur_unit or "day"
         t.recur_interval = t.recur_interval or 1
-        t.next_due = date.today()
+        t.next_due = today
     elif t.kind == "recurring":
         t.recur_unit = t.recur_unit or "day"
         t.recur_interval = t.recur_interval or 1
         # First occurrence: today unless a weekly rule pushes it forward.
         if t.recur_unit == "week":
-            from app.recurrence import parse_weekdays
-
-            if date.today().weekday() in parse_weekdays(t.recur_weekdays):
-                t.next_due = date.today()
+            if today.weekday() in parse_weekdays(t.recur_weekdays):
+                t.next_due = today
             else:
                 t.next_due = advance_due_date(
-                    t.recur_unit, t.recur_interval, t.recur_weekdays, date.today()
+                    t.recur_unit, t.recur_interval, t.recur_weekdays, today
                 )
         else:
-            t.next_due = date.today()
+            t.next_due = today
     db.add(t)
     db.commit()
     return task_out(db, t)
@@ -135,15 +168,17 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "Task not found")
-    # Manual cascade for subtasks + completions (SQLite FKs off by default).
+    # Manual cascade for subtasks + completions + skips (SQLite FKs off by default).
     for sub in db.scalars(select(Task).where(Task.parent_id == task_id)):
         db.execute(
             TaskCompletion.__table__.delete().where(TaskCompletion.task_id == sub.id)
         )
+        db.execute(TaskSkip.__table__.delete().where(TaskSkip.task_id == sub.id))
         db.delete(sub)
     db.execute(
         TaskCompletion.__table__.delete().where(TaskCompletion.task_id == task_id)
     )
+    db.execute(TaskSkip.__table__.delete().where(TaskSkip.task_id == task_id))
     db.delete(t)
     db.commit()
     return {"ok": True}
@@ -172,6 +207,50 @@ def complete_task(
     else:
         t.status = "done"
         t.completed_at = datetime.utcnow()
+    db.commit()
+    return task_out(db, t, date_param)
+
+
+@router.post("/{task_id}/skip", response_model=TaskOut)
+def skip_task(
+    task_id: int,
+    date_param: date = Query(..., alias="date"),
+    db: Session = Depends(get_db),
+):
+    """Decline an occurrence: resolve it without completing. Streaks untouched."""
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "Task not found")
+    if t.kind not in ("daily", "recurring"):
+        raise HTTPException(400, "Only daily/recurring tasks can be skipped")
+    exists = db.scalar(
+        select(TaskSkip.id).where(
+            TaskSkip.task_id == t.id, TaskSkip.date == date_param
+        )
+    )
+    if not exists:
+        db.add(TaskSkip(task_id=t.id, date=date_param))
+        db.flush()  # session has autoflush off — make the row visible to queries
+    _resync_next_due(db, t)
+    db.commit()
+    return task_out(db, t, date_param)
+
+
+@router.post("/{task_id}/unskip", response_model=TaskOut)
+def unskip_task(
+    task_id: int,
+    date_param: date = Query(..., alias="date"),
+    db: Session = Depends(get_db),
+):
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "Task not found")
+    db.execute(
+        TaskSkip.__table__.delete().where(
+            TaskSkip.task_id == t.id, TaskSkip.date == date_param
+        )
+    )
+    _resync_next_due(db, t, undone_date=date_param)
     db.commit()
     return task_out(db, t, date_param)
 

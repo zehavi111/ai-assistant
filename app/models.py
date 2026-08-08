@@ -13,16 +13,21 @@ class Task(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(300))
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 'task' | 'project' | 'daily' | 'recurring'; subtasks are kind='task' with parent_id set
+    # 'task' | 'project' | 'daily' | 'recurring' | 'call'; subtasks are kind='task' with parent_id set
     kind: Mapped[str] = mapped_column(String(20), default="task")
     parent_id: Mapped[int | None] = mapped_column(
         ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True
     )
     priority: Mapped[int] = mapped_column(Integer, default=0)  # 0 none, 1 low, 2 med, 3 high
     due_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    due_time: Mapped[str | None] = mapped_column(String(5), nullable=True)  # "HH:MM"
+    section_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sections.id", ondelete="SET NULL"), nullable=True
+    )
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)  # kind='call' only
     status: Mapped[str] = mapped_column(String(10), default="open")  # 'open' | 'done'
     completed_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
-    # Recurrence: 'day' | 'week' | 'interval'
+    # Recurrence: 'day' | 'week' | 'month' | 'interval'
     recur_unit: Mapped[str | None] = mapped_column(String(10), nullable=True)
     recur_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
     recur_weekdays: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "0,2,4" Mon=0
@@ -40,6 +45,27 @@ class TaskCompletion(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"))
     date: Mapped[dt.date] = mapped_column(Date)
+
+
+class TaskSkip(Base):
+    """A declined occurrence of a daily/recurring task — resolved without completing."""
+
+    __tablename__ = "task_skips"
+    __table_args__ = (UniqueConstraint("task_id", "date", name="uq_skip"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"))
+    date: Mapped[dt.date] = mapped_column(Date)
+
+
+class Section(Base):
+    """User-defined grouping label (Work, Finance, ...) shared by all task kinds."""
+
+    __tablename__ = "sections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Event(Base):

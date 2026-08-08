@@ -10,8 +10,7 @@ import * as meals from './views/meals.js';
 import * as study from './views/study.js';
 
 const views = { login, today, tasks, calendar, people, meals, study };
-const NAV_TABS = ['today', 'tasks', 'calendar', 'people'];
-const MORE_ROUTES = ['meals', 'study'];
+const MORE_ROUTES = ['meals', 'study', 'people'];
 
 let currentView = null;
 
@@ -86,6 +85,7 @@ function openMoreSheet() {
       el('div', { class: 'row-main' }, el('div', { class: 'row-title' }, label)));
   const dark = document.documentElement.dataset.theme === 'dark';
   openSheet(null, el('div', { class: 'card', style: 'box-shadow:none' },
+    item('👋', 'People', () => { closeSheet(); location.hash = '#/people'; }),
     item('🍽️', 'Meals', () => { closeSheet(); location.hash = '#/meals'; }),
     item('📚', 'Study', () => { closeSheet(); location.hash = '#/study'; }),
     item(dark ? '☀️' : '🌙', dark ? 'Light mode' : 'Dark mode', () => { toggleTheme(); closeSheet(); }),

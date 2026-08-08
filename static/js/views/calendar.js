@@ -4,7 +4,7 @@ import {
   el, openSheet, closeSheet, confirmDialog, emptyState,
   setHeader, todayISO, addDays, mondayOf, fmtDate, weekdayName,
 } from '../ui.js';
-import { taskRow } from './tasks.js';
+import { taskRow, callRow, occurrenceRow } from './tasks.js';
 
 let mode = localStorage.getItem('calMode') || 'day';
 let anchor = todayISO(); // day shown (day mode) / any day in week (week mode)
@@ -52,25 +52,39 @@ async function renderDay(viewEl) {
     () => { anchor = addDays(anchor, 1); refresh(); },
   ));
 
-  const [events, dueTasks] = await Promise.all([
+  const [events, dueTasks, recurring] = await Promise.all([
     api.get(`/api/events?start=${anchor}&end=${anchor}`),
-    api.get(`/api/tasks?kind=task&status=open&top_level=true&date=${anchor}`),
+    api.get(`/api/tasks?kind=task,project,call&status=open&top_level=true&date=${anchor}`),
+    api.get(`/api/tasks?kind=recurring&date=${anchor}`),
   ]);
   const tasksThatDay = dueTasks.filter((x) => x.due_date === anchor);
+  const routinesThatDay = recurring.filter(
+    (x) => x.pending_dates && x.pending_dates.includes(anchor));
 
-  if (!events.length && !tasksThatDay.length) {
+  if (!events.length && !tasksThatDay.length && !routinesThatDay.length) {
     viewEl.append(emptyState('🌤️', 'Nothing on this day.', 'Add event', quickAdd));
     return;
   }
 
-  if (events.length) {
-    viewEl.append(el('div', { class: 'card' }, events.map((e) => eventRow(e))));
-  }
-  if (tasksThatDay.length) {
-    viewEl.append(el('div', { class: 'section' },
-      el('div', { class: 'section-label' }, 'Due this day'),
-      el('div', { class: 'card' }, tasksThatDay.map((task) => taskRow(task, refresh)))));
-  }
+  // One merged chronological card: all-day events, then timed items, then untimed.
+  const allDay = events.filter((e) => e.all_day);
+  const timed = [
+    ...events.filter((e) => !e.all_day).map((e) => ({ time: e.start_time || '', node: eventRow(e) })),
+    ...tasksThatDay.filter((x) => x.due_time).map((x) => ({
+      time: x.due_time,
+      node: x.kind === 'call' ? callRow(x, refresh) : taskRow(x, refresh),
+    })),
+  ].sort((a, b) => a.time.localeCompare(b.time));
+  const untimed = tasksThatDay.filter((x) => !x.due_time)
+    .map((x) => (x.kind === 'call' ? callRow(x, refresh) : taskRow(x, refresh)));
+  const routineRows = routinesThatDay.map((x) => occurrenceRow(x, anchor, refresh));
+
+  viewEl.append(el('div', { class: 'card' },
+    allDay.map((e) => eventRow(e)),
+    timed.map((x) => x.node),
+    untimed,
+    routineRows,
+  ));
 }
 
 async function renderWeek(viewEl) {
@@ -83,19 +97,25 @@ async function renderWeek(viewEl) {
     () => { anchor = addDays(monday, 7); refresh(); },
   ));
 
-  const [events, allTasks] = await Promise.all([
+  const [events, allTasks, recurring] = await Promise.all([
     api.get(`/api/events?start=${monday}&end=${sunday}`),
-    api.get(`/api/tasks?kind=task&status=open&top_level=true`),
+    api.get(`/api/tasks?kind=task,project,call&status=open&top_level=true`),
+    api.get(`/api/tasks?kind=recurring&date=${sunday}`),
   ]);
 
   const card = el('div', { class: 'card' });
   for (let i = 0; i < 7; i++) {
     const d = addDays(monday, i);
     const dayEvents = events.filter((e) => e.date === d);
-    const dayTasks = allTasks.filter((x) => x.due_date === d);
+    const dayTasks = allTasks.filter((x) => x.due_date === d && x.kind !== 'call');
+    const dayCalls = allTasks.filter((x) => x.due_date === d && x.kind === 'call');
+    const dayRoutines = recurring.filter(
+      (x) => x.pending_dates && x.pending_dates.includes(d));
     const bits = [
       ...dayEvents.map((e) => (e.all_day ? e.title : `${e.start_time || ''} ${e.title}`.trim())),
       ...dayTasks.map((x) => `☐ ${x.title}`),
+      ...dayCalls.map((x) => `📞 ${x.title}`),
+      ...dayRoutines.map((x) => `↻ ${x.title}`),
     ];
     card.append(el('div', {
       class: 'row tappable week-day-row' + (d === t ? ' today-row' : ''),

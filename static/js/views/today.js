@@ -1,8 +1,7 @@
 // Today dashboard — the home screen.
 import { api } from '../api.js';
 import { el, setHeader, todayISO, fmtFullDate, daysBetween, emptyState, checkbox } from '../ui.js';
-import { openTaskSheet, toggleComplete, taskRow } from './tasks.js';
-import { personRow } from './people.js';
+import { openTaskSheet, toggleComplete, taskRow, callRow, occurrenceRow } from './tasks.js';
 
 let viewRoot = null;
 
@@ -50,16 +49,20 @@ export async function render(viewEl) {
     viewEl.append(section('Daily missions', 'tasks', card));
   }
 
-  // Due today (plain + recurring instances).
+  // Due today (plain + recurring occurrences).
   if (data.due_tasks.length) {
-    viewEl.append(section('Due today', 'tasks',
-      el('div', { class: 'card' }, data.due_tasks.map((task) => taskRow(task, refresh)))));
+    const rows = data.due_tasks.flatMap((task) =>
+      task.kind === 'recurring' && task.pending_dates && task.pending_dates.length
+        ? task.pending_dates.map((d) => occurrenceRow(task, d, refresh))
+        : [taskRow(task, refresh)]);
+    viewEl.append(section('Due today', 'tasks', el('div', { class: 'card' }, rows)));
   }
 
-  // Follow-ups.
-  if (data.followups_due.length) {
-    viewEl.append(section('Follow-ups', 'people',
-      el('div', { class: 'card' }, data.followups_due.map((p) => personRow(p, refresh)))));
+  // Calls to make.
+  if (data.calls_due.length) {
+    viewEl.append(section('Calls', 'tasks',
+      el('div', { class: 'card' }, data.calls_due.map((c) => callRow(c, refresh))),
+      () => localStorage.setItem('tasksSegment', 'calls')));
   }
 
   // Meals strip.
@@ -75,7 +78,7 @@ export async function render(viewEl) {
   }
 
   const nothingElse = !data.overdue_tasks.length && !data.due_tasks.length
-    && !data.dailies.length && !data.followups_due.length && !data.events.length;
+    && !data.dailies.length && !data.calls_due.length && !data.events.length;
   if (nothingElse) {
     viewEl.append(emptyState('🧘', 'A completely clear day. Rare and beautiful.', 'Add something', quickAdd));
   }
@@ -99,11 +102,11 @@ function eventRow(e) {
   );
 }
 
-function section(label, route, card) {
+function section(label, route, card, beforeNav = null) {
   return el('div', { class: 'section' },
     el('div', { class: 'section-label' },
       label,
-      el('a', { href: `#/${route}` }, 'See all')),
+      el('a', { href: `#/${route}`, onclick: beforeNav || undefined }, 'See all')),
     card,
   );
 }

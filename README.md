@@ -2,12 +2,14 @@
 
 Your whole life, one app. A personal, mobile-first PWA that manages:
 
-- ✅ **Tasks** — quick tasks, long projects with subtasks, daily missions with 🔥 streaks, recurring tasks
-- 📅 **Schedule** — day & week calendar; due tasks show up on the calendar too
-- 👋 **People** — who to call/text, follow-up reminders, one-tap `tel:`/`sms:`, snooze
+- ✅ **Tasks** — quick tasks (due date **and time**), long projects with subtasks + deadlines, daily missions with 🔥 streaks, routines (daily / weekly / monthly / every-N-days) where each missed occurrence can be completed or skipped individually
+- 📞 **Calls** — calls you need to make: pick from phone contacts (Chrome Android) or type a name, one-tap `tel:` / WhatsApp, priority + due date/time
+- 🗂 **Sections** — your own labels (Work, Finance, …) to organize tasks, projects, routines, and calls
+- 📅 **Schedule** — day & week calendar; tasks, project deadlines, routines, and calls all appear alongside events
+- 👋 **People** — follow-up reminders, one-tap `tel:`/`sms:`, snooze (in the More menu)
 - 🍽️ **Meals** — weekly breakfast/lunch/dinner planner, meal library, grocery notes
 - 📚 **Study** — queue of topics to learn or deep-dive
-- ☀️ **Today** — one dashboard with everything that matters right now
+- ☀️ **Today** — one dashboard with everything that matters right now: overdue, schedule, missions, due tasks, routine occurrences, calls, meals
 
 No app store: open it in your phone's browser and **Add to Home Screen** — it installs and behaves like a native app.
 

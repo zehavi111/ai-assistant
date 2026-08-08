@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Life OS",
   "short_name": "Life",
-  "description": "Your whole life, one app: tasks, schedule, people, meals, study.",
+  "description": "Your whole life, one app: tasks, calls, schedule, meals, study.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#F7F6F3",

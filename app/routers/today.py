@@ -7,11 +7,16 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_auth
 from app.db import get_db
-from app.models import Event, MealPlan, Person, Task
+from app.models import Event, MealPlan, Task
 from app.routers.tasks import task_out
-from app.schemas import EventOut, PersonOut, TaskOut
+from app.schemas import EventOut
 
 router = APIRouter(prefix="/api", tags=["today"], dependencies=[Depends(require_auth)])
+
+
+def _time_key(t: Task):
+    """Timed items first (by HH:MM), untimed after."""
+    return (t.due_time is None, t.due_time or "")
 
 
 @router.get("/today")
@@ -26,23 +31,27 @@ def get_today(date_param: date = Query(..., alias="date"), db: Session = Depends
         )
     )
 
-    # Plain tasks due today / overdue.
+    # Tasks + projects due today / overdue.
     due_tasks = list(
         db.scalars(
             select(Task).where(
-                Task.kind == "task", Task.status == "open", Task.due_date == d
+                Task.kind.in_(("task", "project")),
+                Task.status == "open",
+                Task.due_date == d,
             )
         )
     )
     overdue_tasks = list(
         db.scalars(
             select(Task).where(
-                Task.kind == "task", Task.status == "open", Task.due_date < d
+                Task.kind.in_(("task", "project")),
+                Task.status == "open",
+                Task.due_date < d,
             )
         )
     )
 
-    # Recurring instances due (next_due <= d): overdue collapses into one.
+    # Recurring with anything pending (next_due = earliest unresolved occurrence).
     recurring_due = list(
         db.scalars(
             select(Task).where(Task.kind == "recurring", Task.next_due <= d)
@@ -51,12 +60,15 @@ def get_today(date_param: date = Query(..., alias="date"), db: Session = Depends
 
     dailies = list(db.scalars(select(Task).where(Task.kind == "daily")))
 
-    followups = list(
+    # Calls due today or earlier.
+    calls_due = sorted(
         db.scalars(
-            select(Person)
-            .where(Person.followup_date.is_not(None), Person.followup_date <= d)
-            .order_by(Person.followup_date)
-        )
+            select(Task).where(
+                Task.kind == "call", Task.status == "open",
+                Task.due_date.is_not(None), Task.due_date <= d,
+            )
+        ),
+        key=lambda t: (t.due_date, *_time_key(t)),
     )
 
     meal_rows = db.scalars(select(MealPlan).where(MealPlan.date == d))
@@ -75,14 +87,13 @@ def get_today(date_param: date = Query(..., alias="date"), db: Session = Depends
         "events": [EventOut.model_validate(e).model_dump(mode="json") for e in events],
         "due_tasks": [
             task_out(db, t, d).model_dump(mode="json")
-            for t in due_tasks + recurring_due
+            for t in sorted(due_tasks, key=_time_key) + recurring_due
         ],
         "overdue_tasks": [
             task_out(db, t, d).model_dump(mode="json") for t in overdue_tasks
         ],
         "dailies": [task_out(db, t, d).model_dump(mode="json") for t in dailies],
-        "followups_due": [
-            PersonOut.model_validate(p).model_dump(mode="json") for p in followups
-        ],
+        "calls_due": [task_out(db, t, d).model_dump(mode="json") for t in calls_due],
+        "followups_due": [],  # stub: stale-SW shells may still read this key
         "meals": meals,
     }

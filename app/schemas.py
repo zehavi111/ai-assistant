@@ -12,10 +12,13 @@ class ORMModel(BaseModel):
 class TaskCreate(BaseModel):
     title: str
     notes: str | None = None
-    kind: str = "task"  # task | project | daily | recurring
+    kind: str = "task"  # task | project | daily | recurring | call
     parent_id: int | None = None
     priority: int = 0
     due_date: dt.date | None = None
+    due_time: str | None = None  # "HH:MM"
+    section_id: int | None = None
+    phone: str | None = None
     recur_unit: str | None = None
     recur_interval: int | None = None
     recur_weekdays: str | None = None
@@ -27,6 +30,9 @@ class TaskUpdate(BaseModel):
     notes: str | None = None
     priority: int | None = None
     due_date: dt.date | None = None
+    due_time: str | None = None
+    section_id: int | None = None
+    phone: str | None = None
     status: str | None = None
     recur_unit: str | None = None
     recur_interval: int | None = None
@@ -43,6 +49,9 @@ class TaskOut(ORMModel):
     parent_id: int | None
     priority: int
     due_date: dt.date | None
+    due_time: str | None
+    section_id: int | None
+    phone: str | None
     status: str
     completed_at: dt.datetime | None
     recur_unit: str | None
@@ -56,6 +65,25 @@ class TaskOut(ORMModel):
     done_today: bool = False
     subtask_total: int = 0
     subtask_done: int = 0
+    section_name: str | None = None
+    pending_dates: list[str] = []
+
+
+# ---- Sections ----
+class SectionCreate(BaseModel):
+    name: str
+    sort_order: int = 0
+
+
+class SectionUpdate(BaseModel):
+    name: str | None = None
+    sort_order: int | None = None
+
+
+class SectionOut(ORMModel):
+    id: int
+    name: str
+    sort_order: int
 
 
 # ---- Events ----
