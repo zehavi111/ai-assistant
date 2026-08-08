@@ -52,4 +52,6 @@ Smoke test: `GET /api/health` → `{"status":"ok","db":"ok"}`.
 
 Render free tier via `render.yaml` + free Neon Postgres. Env vars: `DATABASE_URL`, `APP_PASSWORD`, `SECRET_KEY`. See README for steps.
 
-Live service: `srv-d9qsc0u417fc738341tg` → https://life-os-li19.onrender.com. Auto-deploys on push to `main`. Note: for a few minutes after a service is first created, Render's edge intermittently returns 404 with `x-render-routing: no-server` while routing propagates — the app is fine, it settles on its own.
+Live service: `srv-d9qsc0u417fc738341tg` → https://life-os-li19.onrender.com. Auto-deploys on push to `main`.
+
+Version: `GET /api/version` returns the short SHA of the deployed commit (`RENDER_GIT_COMMIT` env, `"dev"` locally) — bumps automatically on every deployed commit, no manual step. Shown at the bottom of the More sheet (fetched fresh on each open, never cached by the SW). Note: for a few minutes after a service is first created, Render's edge intermittently returns 404 with `x-render-routing: no-server` while routing propagates — the app is fine, it settles on its own.

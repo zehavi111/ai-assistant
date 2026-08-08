@@ -40,6 +40,8 @@ Free hosts wipe local disk on restart, so production data lives in a free cloud 
 
 > **Note:** Render's free tier sleeps after idle — first open after a while takes ~30s to wake. Not a bug.
 
+Every push to `main` auto-deploys. The running version (short commit SHA) is shown at the bottom of the **More** menu in the app — compare it with your latest commit to confirm a deploy landed.
+
 ## Install on your phone
 
 - **iPhone (Safari):** open the app URL → Share → **Add to Home Screen**.

@@ -23,6 +23,13 @@ app.include_router(study.router)
 app.include_router(sections.router)
 
 
+@app.get("/api/version")
+def version():
+    from app.config import APP_VERSION
+
+    return {"version": APP_VERSION}
+
+
 @app.get("/api/health")
 def health():
     try:

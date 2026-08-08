@@ -84,6 +84,9 @@ function openMoreSheet() {
       el('span', { style: 'font-size:22px' }, ico),
       el('div', { class: 'row-main' }, el('div', { class: 'row-title' }, label)));
   const dark = document.documentElement.dataset.theme === 'dark';
+  const versionEl = el('div', {
+    style: 'text-align:center;color:var(--text-dim);font-size:12px;padding:10px 0 2px',
+  }, 'Life OS');
   openSheet(null, el('div', { class: 'card', style: 'box-shadow:none' },
     item('👋', 'People', () => { closeSheet(); location.hash = '#/people'; }),
     item('🍽️', 'Meals', () => { closeSheet(); location.hash = '#/meals'; }),
@@ -94,7 +97,12 @@ function openMoreSheet() {
       closeSheet();
       location.hash = '#/login';
     }),
+    versionEl,
   ));
+  // Fetched fresh on every open, so a new deploy shows its version immediately.
+  api.get('/api/version')
+    .then((v) => { versionEl.textContent = `Life OS · ${v.version}`; })
+    .catch(() => {});
 }
 
 // ---- Boot ----
