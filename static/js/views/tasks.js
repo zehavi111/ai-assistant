@@ -13,6 +13,24 @@ let viewRoot = null;
 // Each segment manages its own section list.
 const SECTION_KIND = { tasks: 'task', projects: 'project', routines: 'routine', calls: 'call' };
 
+// Sections change rarely but were refetched on every render and every sheet
+// open — a whole round trip in front of the UI. Memoize per kind instead.
+const sectionMemo = new Map();
+
+function sectionsFor(kind) {
+  if (!sectionMemo.has(kind)) {
+    sectionMemo.set(kind, api.get(`/api/sections?kind=${kind}`).catch((e) => {
+      sectionMemo.delete(kind);
+      throw e;
+    }));
+  }
+  return sectionMemo.get(kind);
+}
+
+function invalidateSections() {
+  sectionMemo.clear();
+}
+
 // task.kind -> section kind
 function sectionKindFor(taskKind) {
   return { task: 'task', project: 'project', daily: 'routine', recurring: 'routine', call: 'call' }[taskKind] || 'task';
@@ -50,11 +68,8 @@ export async function render(viewEl, params = []) {
   viewEl.innerHTML = '';
   if (params.length) return renderProjectDetail(viewEl, Number(params[0]));
 
-  sectionsCache = await api.get(`/api/sections?kind=${SECTION_KIND[segment]}`);
-  if (getSectionFilter() !== 'all' && !sectionsCache.some((s) => String(s.id) === getSectionFilter())) {
-    setSectionFilter('all');
-  }
-
+  // Paint the chrome before awaiting data — the tab bar should never be
+  // missing while a request is in flight.
   const sectionsBtn = el('button', { class: 'header-action', onclick: openSectionsSheet }, '🗂 Sections');
   setHeader('Tasks', null, sectionsBtn);
   const seg = el('div', { class: 'segmented' },
@@ -64,6 +79,11 @@ export async function render(viewEl, params = []) {
         onclick: () => { segment = s; localStorage.setItem('tasksSegment', s); render(viewEl, params); },
       }, s[0].toUpperCase() + s.slice(1))));
   viewEl.append(seg);
+
+  sectionsCache = await sectionsFor(SECTION_KIND[segment]);
+  if (getSectionFilter() !== 'all' && !sectionsCache.some((s) => String(s.id) === getSectionFilter())) {
+    setSectionFilter('all');
+  }
 
   if (segment === 'tasks') await renderTasks(viewEl);
   else if (segment === 'projects') await renderProjects(viewEl);
@@ -291,33 +311,41 @@ export function ruleInWords(t) {
 function routineRow(t) {
   const today = todayISO();
   const overdue = t.next_due && t.next_due < today;
-  return el('div', {
+  let row;
+  row = el('div', {
     class: 'row tappable' + (t.done_today ? ' done' : ''),
     onclick: () => openTaskSheet(t, refresh),
   },
-    checkbox(t.done_today, () => toggleComplete(t, refresh)),
+    checkbox(t.done_today, () => toggleComplete(t, refresh, row)),
     el('div', { class: 'row-main' },
       el('div', { class: 'row-title' }, t.title),
       el('div', { class: 'row-sub' }, ruleInWords(t) + (overdue ? ` · missed since ${fmtDate(t.next_due)}` : '')),
     ),
     overdue ? el('span', { class: 'pill overdue' }, 'due') : null,
   );
+  return row;
 }
 
 // One pending occurrence of a recurring task: ✓ complete or ✗ skip that date.
+// Both resolve optimistically — the row leaves at once, the POST follows.
 export function occurrenceRow(t, dateISO, onChange = refresh) {
   const today = todayISO();
   const missed = dateISO < today;
   const label = dateISO === today ? 'Today' : fmtDate(dateISO, { weekday: true });
-  return el('div', { class: 'row tappable', onclick: () => openTaskSheet(t, onChange) },
-    checkbox(false, async () => {
-      await api.post(`/api/tasks/${t.id}/complete?date=${dateISO}`);
-      toast('Done ✓', 'Undo', async () => {
-        await api.post(`/api/tasks/${t.id}/uncomplete?date=${dateISO}`);
+
+  const resolve = (action, undoAction, msg) => {
+    row.remove();
+    api.post(`/api/tasks/${t.id}/${action}?date=${dateISO}`)
+      .then(() => toast(msg, 'Undo', async () => {
+        await api.post(`/api/tasks/${t.id}/${undoAction}?date=${dateISO}`);
         onChange();
-      });
-      onChange();
-    }),
+      }))
+      .catch(() => onChange());
+  };
+
+  let row;
+  row = el('div', { class: 'row tappable', onclick: () => openTaskSheet(t, onChange) },
+    checkbox(false, () => resolve('complete', 'uncomplete', 'Done ✓')),
     el('div', { class: 'row-main' },
       el('div', { class: 'row-title' }, t.title),
       el('div', { class: 'row-sub' }, `${label}${missed ? ' · missed' : ''} · ${ruleInWords(t)}`),
@@ -325,17 +353,13 @@ export function occurrenceRow(t, dateISO, onChange = refresh) {
     missed ? el('span', { class: 'pill overdue' }, 'due') : null,
     el('button', {
       class: 'text-btn', type: 'button',
-      onclick: async (e) => {
+      onclick: (e) => {
         e.stopPropagation();
-        await api.post(`/api/tasks/${t.id}/skip?date=${dateISO}`);
-        toast('Skipped', 'Undo', async () => {
-          await api.post(`/api/tasks/${t.id}/unskip?date=${dateISO}`);
-          onChange();
-        });
-        onChange();
+        resolve('skip', 'unskip', 'Skipped');
       },
     }, '✗ Skip'),
   );
+  return row;
 }
 
 // ---- Calls ----
@@ -356,11 +380,12 @@ export function callRow(t, onChange = refresh) {
   }
   if (t.notes) subBits.push(t.notes);
 
-  return el('div', {
+  let row;
+  row = el('div', {
     class: `row tappable pri-${t.priority}` + (done ? ' done' : ''),
     onclick: () => openTaskSheet(t, onChange),
   },
-    checkbox(done, () => toggleComplete(t, onChange)),
+    checkbox(done, () => toggleComplete(t, onChange, row)),
     el('div', { class: 'row-main' },
       el('div', { class: 'row-title' }, t.title),
       subBits.length ? el('div', { class: 'row-sub' }, subBits.join(' · ')) : null,
@@ -374,6 +399,7 @@ export function callRow(t, onChange = refresh) {
       'aria-label': 'WhatsApp', onclick: (e) => e.stopPropagation(),
     }, '💬') : null,
   );
+  return row;
 }
 
 async function renderCalls(viewEl) {
@@ -407,7 +433,7 @@ async function renderCalls(viewEl) {
 // ---- Shared row + complete logic (used by today.js too) ----
 export function taskRow(t, onChange = refresh) {
   const today = todayISO();
-  const done = ['task', 'project', 'call'].includes(t.kind) ? t.status === 'done' : t.done_today;
+  const done = isDone(t);
   const subBits = [];
   if (t.due_date) {
     const diff = daysBetween(today, t.due_date);
@@ -418,29 +444,57 @@ export function taskRow(t, onChange = refresh) {
   }
   if (t.kind === 'recurring') subBits.push(ruleInWords(t));
 
-  return el('div', {
+  let row;
+  row = el('div', {
     class: `row tappable pri-${t.priority}` + (done ? ' done' : ''),
     onclick: () => openTaskSheet(t, onChange),
   },
-    checkbox(done, () => toggleComplete(t, onChange)),
+    checkbox(done, () => toggleComplete(t, onChange, row)),
     el('div', { class: 'row-main' },
       el('div', { class: 'row-title' }, t.title),
       subBits.length ? el('div', { class: 'row-sub' }, subBits.join(' · ')) : null,
     ),
     t.section_name ? el('span', { class: 'pill' }, t.section_name) : null,
   );
+  return row;
 }
 
-export async function toggleComplete(t, onChange) {
+export function isDone(t) {
+  return ['task', 'project', 'call'].includes(t.kind) ? t.status === 'done' : t.done_today;
+}
+
+function paintDone(rowEl, done) {
+  if (!rowEl) return;
+  rowEl.classList.toggle('done', done);
+  rowEl.querySelector('.check')?.classList.toggle('checked', done);
+}
+
+function setLocalDone(t, done) {
+  if (['task', 'project', 'call'].includes(t.kind)) t.status = done ? 'done' : 'open';
+  else t.done_today = done;
+}
+
+// Optimistic: paint the row immediately, POST in the background. A full
+// re-render here would blank the screen for a round trip on every tap; the
+// item settles into its Done group on the next natural render instead.
+export function toggleComplete(t, onChange, rowEl = null) {
   const d = todayISO();
-  const done = ['task', 'project', 'call'].includes(t.kind) ? t.status === 'done' : t.done_today;
-  const action = done ? 'uncomplete' : 'complete';
-  await api.post(`/api/tasks/${t.id}/${action}?date=${d}`);
-  if (!done) toast('Done ✓', 'Undo', async () => {
-    await api.post(`/api/tasks/${t.id}/uncomplete?date=${d}`);
-    onChange();
-  });
-  onChange();
+  const was = isDone(t);
+  const now = !was;
+  setLocalDone(t, now);
+  paintDone(rowEl, now);
+
+  api.post(`/api/tasks/${t.id}/${now ? 'complete' : 'uncomplete'}?date=${d}`)
+    .then(() => {
+      if (now) {
+        toast('Done ✓', 'Undo', () => toggleComplete(t, onChange, rowEl));
+      }
+    })
+    .catch(() => {
+      setLocalDone(t, was);
+      paintDone(rowEl, was);
+      if (onChange) onChange();
+    });
 }
 
 // ---- Task form (create/edit) — shared bottom sheet ----
@@ -448,7 +502,7 @@ export async function openTaskSheet(task, onSaved) {
   const isNew = !task.id;
   const kind = task.kind || 'task';
   const hasDue = ['task', 'project', 'call'].includes(kind);
-  const allSections = await api.get(`/api/sections?kind=${sectionKindFor(kind)}`).catch(() => []);
+  const allSections = await sectionsFor(sectionKindFor(kind)).catch(() => []);
   const state = {
     recur_interval: task.recur_interval || 1,
     weekdays: task.recur_weekdays ? task.recur_weekdays.split(',').map(Number) : [],
@@ -615,6 +669,7 @@ async function openSectionsSheet() {
       const name = input.value.trim();
       if (!name) return;
       await api.post('/api/sections', { name, kind, sort_order: list.length });
+      invalidateSections();
       refresh();
       openSectionsSheet();
     },
@@ -632,6 +687,7 @@ async function openSectionsSheet() {
           onclick: async () => {
             if (!(await confirmDialog(`Delete section "${s.name}"? Tasks keep their data, just lose the label.`))) return;
             await api.del(`/api/sections/${s.id}`);
+            invalidateSections();
             refresh();
             openSectionsSheet();
           },
@@ -646,7 +702,11 @@ async function openSectionsSheet() {
         onsubmit: async (e) => {
           e.preventDefault();
           const name = renameInput.value.trim();
-          if (name && name !== s.name) { await api.patch(`/api/sections/${s.id}`, { name }); refresh(); }
+          if (name && name !== s.name) {
+            await api.patch(`/api/sections/${s.id}`, { name });
+            invalidateSections();
+            refresh();
+          }
           openSectionsSheet();
         },
       }, renameInput));

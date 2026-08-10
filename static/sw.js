@@ -1,6 +1,6 @@
 // Service worker: app-shell cache-first, API network-only.
 // Convention: bump CACHE version on ANY static file change.
-const CACHE = 'shell-v5';
+const CACHE = 'shell-v6';
 
 const SHELL = [
   '/',

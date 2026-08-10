@@ -38,7 +38,7 @@ Free hosts wipe local disk on restart, so production data lives in a free cloud 
    - (`SECRET_KEY` is auto-generated)
 5. Deploy, then open the app URL.
 
-> **Note:** Render's free tier sleeps after idle — first open after a while takes ~30s to wake. Not a bug.
+> **Note:** Render's free tier sleeps after ~15 min idle, and the next visit waits ~30-60s for it to boot. `.github/workflows/keep-warm.yml` pings the app every 5 minutes between 05:00-21:59 UTC to keep it awake during waking hours (staying inside the 750 free instance-hours/month). Outside that window the first open is slow — the app shows a "Waking up the server…" banner rather than a blank screen.
 
 Every push to `main` auto-deploys. The running version (`0.0.N`, where N = commit count — bumps on every commit) is shown at the bottom of the **More** menu in the app — if it went up after a push, the deploy landed.
 

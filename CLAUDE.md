@@ -38,6 +38,8 @@ Installed on the phone via browser "Add to Home Screen" (no app store).
 - Priority scale everywhere: 0 none, 1 low, 2 medium, 3 high. Weekdays: Monday=0 CSV (e.g. `"0,2,4"`).
 - WhatsApp links are `https://wa.me/<digits>` — correct only when the stored phone is in international format (country code, no leading 00/+ needed after stripping). There is no web API for WhatsApp contact lists.
 - Keep it personal-tool simple: no over-abstraction, few files, no heavy test ceremony.
+- **Never block the UI on a round trip.** The host is a free tier in Oregon and the user is on mobile in Israel, so every call costs ~0.5s warm. Completing/skipping paints the row optimistically and POSTs in the background (`toggleComplete(t, onChange, rowEl)`, `occurrenceRow`'s `resolve`), reverting only on failure — never re-render the whole view for a checkbox. Screen chrome (header, segmented control) renders before any `await`. Sections are memoized per kind in `tasks.js` (`sectionsFor`/`invalidateSections`) — call `invalidateSections()` after any section write.
+- `api.js` aborts requests after 90s and shows the `#wake-banner` ("Waking up the server…") once anything is in flight >2.5s, so a cold start never looks like a frozen app.
 
 ## Run
 
@@ -52,6 +54,8 @@ Smoke test: `GET /api/health` → `{"status":"ok","db":"ok"}`.
 
 Render free tier via `render.yaml` + free Neon Postgres. Env vars: `DATABASE_URL`, `APP_PASSWORD`, `SECRET_KEY`. See README for steps.
 
-Live service: `srv-d9qsc0u417fc738341tg` → https://life-os-li19.onrender.com. Auto-deploys on push to `main`.
+Live service: `srv-d9qsc0u417fc738341tg` → https://life-os-li19.onrender.com. Auto-deploys on push to `main` **only if the Render GitHub App is installed on the repo** — it is not, so deploys currently need a manual trigger (Render dashboard → Manual Deploy, or the Render MCP `trigger_deploy`).
+
+Free tier sleeps after ~15 min idle; the next request then waits ~30-60s for a cold start (confirmed in logs: shutdown exactly 15 min after the last request, ~20s to boot). `.github/workflows/keep-warm.yml` pings `/api/health` every 5 min from 05:00-21:59 UTC to prevent that, using ~520 of the 750 free instance-hours/month. Adding another free Render service would risk blowing that budget.
 
 Version: `GET /api/version` returns `0.0.<commit count on HEAD>` — numeric, bumps automatically on every commit, no manual step. Resolution order in `app/config.py`: `VERSION` file (written by the Render `buildCommand` via `git rev-list --count HEAD`, gitignored) → local `git rev-list --count` → `"dev"`. Shown at the bottom of the More sheet (fetched fresh on each open, never cached by the SW). Note: for a few minutes after a service is first created, Render's edge intermittently returns 404 with `x-render-routing: no-server` while routing propagates — the app is fine, it settles on its own.

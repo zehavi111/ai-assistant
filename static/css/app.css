@@ -248,13 +248,16 @@ a { color: var(--accent); text-decoration: none; }
 [data-theme="dark"] .toast button { color: #B4B5FF; }
 
 /* ---- Offline banner ---- */
-.offline-banner {
+.offline-banner,
+.wake-banner {
   position: fixed; top: 0; left: 0; right: 0; z-index: 50;
   background: var(--warning); color: #fff;
   text-align: center; padding: var(--sp-2);
   padding-top: calc(var(--sp-2) + env(safe-area-inset-top));
   font-size: var(--fs-label); font-weight: 600;
 }
+
+.wake-banner { background: var(--accent); }
 
 /* ---- Login ---- */
 .login-wrap {

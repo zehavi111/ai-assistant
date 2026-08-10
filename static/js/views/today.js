@@ -88,10 +88,12 @@ export async function render(viewEl) {
 }
 
 function dailyRow(d) {
-  return el('div', { class: 'row' + (d.done_today ? ' done' : '') },
-    checkbox(d.done_today, () => toggleComplete(d, refresh)),
+  let row;
+  row = el('div', { class: 'row' + (d.done_today ? ' done' : '') },
+    checkbox(d.done_today, () => toggleComplete(d, refresh, row)),
     el('div', { class: 'row-main' }, el('div', { class: 'row-title' }, d.title)),
   );
+  return row;
 }
 
 function eventRow(e) {
