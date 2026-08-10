@@ -34,6 +34,7 @@ Installed on the phone via browser "Add to Home Screen" (no app store).
 - Bump the `CACHE` version string in `static/sw.js` on ANY static-file change, or the phone will serve stale assets.
 - New static JS/CSS files must also be added to the `SHELL` list in `sw.js`.
 - API is CRUD-simple JSON under `/api`; add new endpoints to the matching module router with `dependencies=[Depends(require_auth)]`.
+- **Never serialize a list of tasks with per-row queries.** `task_out(db, t, for_date, ctx)` takes a `ctx` from `build_ctx(db, rows, for_date)`, which prefetches completions, skips, sections, and subtask counts in a fixed number of queries. Without it a realistic Today payload cost 51 round trips instead of 12 — seconds of latency against a remote DB. Any new endpoint returning many tasks must build a ctx.
 - Times are `"HH:MM"` strings; dates are ISO date columns (not datetimes) wherever possible.
 - Priority scale everywhere: 0 none, 1 low, 2 medium, 3 high. Weekdays: Monday=0 CSV (e.g. `"0,2,4"`).
 - WhatsApp links are `https://wa.me/<digits>` — correct only when the stored phone is in international format (country code, no leading 00/+ needed after stripping). There is no web API for WhatsApp contact lists.

@@ -2,7 +2,7 @@
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.auth import require_auth
@@ -32,17 +32,90 @@ def _resolved_dates(db: Session, task_id: int, since: date | None = None) -> set
     return set(db.scalars(cq)) | set(db.scalars(sq))
 
 
-def task_out(db: Session, t: Task, for_date: date | None = None) -> TaskOut:
-    out = TaskOut.model_validate(t)
-    if t.kind in ("daily", "recurring") and for_date:
-        done = db.scalar(
-            select(TaskCompletion.id).where(
-                TaskCompletion.task_id == t.id, TaskCompletion.date == for_date
+def build_ctx(db: Session, tasks: list[Task], for_date: date | None = None) -> dict:
+    """Prefetch everything task_out needs for a whole list in a handful of queries.
+
+    Without this each task costs 1-4 extra round trips; against a remote DB that
+    is the difference between a snappy screen and a multi-second one.
+    """
+    ctx: dict = {"done": set(), "resolved": {}, "sections": {}, "subtasks": {}}
+    if not tasks:
+        return ctx
+
+    repeat_ids = [t.id for t in tasks if t.kind in ("daily", "recurring")]
+    recurring_ids = [t.id for t in tasks if t.kind == "recurring"]
+    project_ids = [t.id for t in tasks if t.kind == "project"]
+    section_ids = {t.section_id for t in tasks if t.section_id}
+
+    if for_date and repeat_ids:
+        ctx["done"] = set(
+            db.scalars(
+                select(TaskCompletion.task_id).where(
+                    TaskCompletion.task_id.in_(repeat_ids),
+                    TaskCompletion.date == for_date,
+                )
             )
         )
-        out.done_today = done is not None
+
+    if for_date and recurring_ids:
+        resolved: dict[int, set[date]] = {i: set() for i in recurring_ids}
+        for tid, d in db.execute(
+            select(TaskCompletion.task_id, TaskCompletion.date).where(
+                TaskCompletion.task_id.in_(recurring_ids)
+            )
+        ):
+            resolved[tid].add(d)
+        for tid, d in db.execute(
+            select(TaskSkip.task_id, TaskSkip.date).where(
+                TaskSkip.task_id.in_(recurring_ids)
+            )
+        ):
+            resolved[tid].add(d)
+        ctx["resolved"] = resolved
+
+    if section_ids:
+        ctx["sections"] = {
+            s.id: s.name
+            for s in db.scalars(select(Section).where(Section.id.in_(section_ids)))
+        }
+
+    if project_ids:
+        rows = db.execute(
+            select(
+                Task.parent_id,
+                func.count(),
+                func.sum(case((Task.status == "done", 1), else_=0)),
+            )
+            .where(Task.parent_id.in_(project_ids))
+            .group_by(Task.parent_id)
+        )
+        ctx["subtasks"] = {pid: (total, done or 0) for pid, total, done in rows}
+
+    return ctx
+
+
+def task_out(
+    db: Session, t: Task, for_date: date | None = None, ctx: dict | None = None
+) -> TaskOut:
+    """Serialize one task. Pass ctx from build_ctx() when rendering a list."""
+    out = TaskOut.model_validate(t)
+
+    if t.kind in ("daily", "recurring") and for_date:
+        if ctx is not None:
+            out.done_today = t.id in ctx["done"]
+        else:
+            out.done_today = db.scalar(
+                select(TaskCompletion.id).where(
+                    TaskCompletion.task_id == t.id, TaskCompletion.date == for_date
+                )
+            ) is not None
+
     if t.kind == "recurring" and for_date and t.next_due:
-        resolved = _resolved_dates(db, t.id, since=t.next_due)
+        resolved = (
+            ctx["resolved"].get(t.id, set())
+            if ctx is not None
+            else _resolved_dates(db, t.id, since=t.next_due)
+        )
         out.pending_dates = [
             d.isoformat()
             for d in pending_occurrences(
@@ -50,19 +123,29 @@ def task_out(db: Session, t: Task, for_date: date | None = None) -> TaskOut:
                 t.next_due, for_date, resolved,
             )
         ]
+
     if t.section_id:
-        s = db.get(Section, t.section_id)
-        out.section_name = s.name if s else None
+        if ctx is not None:
+            out.section_name = ctx["sections"].get(t.section_id)
+        else:
+            s = db.get(Section, t.section_id)
+            out.section_name = s.name if s else None
+
     if t.kind == "project":
-        out.subtask_total = (
-            db.scalar(select(func.count()).where(Task.parent_id == t.id)) or 0
-        )
-        out.subtask_done = (
-            db.scalar(
-                select(func.count()).where(Task.parent_id == t.id, Task.status == "done")
+        if ctx is not None:
+            out.subtask_total, out.subtask_done = ctx["subtasks"].get(t.id, (0, 0))
+        else:
+            out.subtask_total = (
+                db.scalar(select(func.count()).where(Task.parent_id == t.id)) or 0
             )
-            or 0
-        )
+            out.subtask_done = (
+                db.scalar(
+                    select(func.count()).where(
+                        Task.parent_id == t.id, Task.status == "done"
+                    )
+                )
+                or 0
+            )
     return out
 
 
@@ -116,7 +199,9 @@ def list_tasks(
     elif top_level:
         q = q.where(Task.parent_id.is_(None))
     q = q.order_by(Task.sort_order, Task.id)
-    return [task_out(db, t, date_param) for t in db.scalars(q)]
+    rows = list(db.scalars(q))
+    ctx = build_ctx(db, rows, date_param)
+    return [task_out(db, t, date_param, ctx) for t in rows]
 
 
 @router.post("", response_model=TaskOut)

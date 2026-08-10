@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_auth
 from app.db import get_db
-from app.models import Event, MealPlan, Task
-from app.routers.tasks import task_out
+from app.models import Event, Meal, MealPlan, Task
+from app.routers.tasks import build_ctx, task_out
 from app.schemas import EventOut
 
 router = APIRouter(prefix="/api", tags=["today"], dependencies=[Depends(require_auth)])
@@ -71,29 +71,34 @@ def get_today(date_param: date = Query(..., alias="date"), db: Session = Depends
         key=lambda t: (t.due_date, *_time_key(t)),
     )
 
-    meal_rows = db.scalars(select(MealPlan).where(MealPlan.date == d))
-    meals = {}
-    for r in meal_rows:
-        name = r.custom_text
-        if r.meal_id:
-            from app.models import Meal
+    meal_rows = list(db.scalars(select(MealPlan).where(MealPlan.date == d)))
+    meal_names = {}
+    wanted = {r.meal_id for r in meal_rows if r.meal_id}
+    if wanted:
+        meal_names = {
+            m.id: m.name for m in db.scalars(select(Meal).where(Meal.id.in_(wanted)))
+        }
+    meals = {
+        r.slot: (meal_names.get(r.meal_id) or r.custom_text) for r in meal_rows
+    }
 
-            m = db.get(Meal, r.meal_id)
-            name = m.name if m else r.custom_text
-        meals[r.slot] = name
+    # One prefetch for every task the payload touches, instead of 1-4 queries each.
+    ctx = build_ctx(
+        db, due_tasks + recurring_due + overdue_tasks + dailies + calls_due, d
+    )
 
     return {
         "date": d.isoformat(),
         "events": [EventOut.model_validate(e).model_dump(mode="json") for e in events],
         "due_tasks": [
-            task_out(db, t, d).model_dump(mode="json")
+            task_out(db, t, d, ctx).model_dump(mode="json")
             for t in sorted(due_tasks, key=_time_key) + recurring_due
         ],
         "overdue_tasks": [
-            task_out(db, t, d).model_dump(mode="json") for t in overdue_tasks
+            task_out(db, t, d, ctx).model_dump(mode="json") for t in overdue_tasks
         ],
-        "dailies": [task_out(db, t, d).model_dump(mode="json") for t in dailies],
-        "calls_due": [task_out(db, t, d).model_dump(mode="json") for t in calls_due],
+        "dailies": [task_out(db, t, d, ctx).model_dump(mode="json") for t in dailies],
+        "calls_due": [task_out(db, t, d, ctx).model_dump(mode="json") for t in calls_due],
         "followups_due": [],  # stub: stale-SW shells may still read this key
         "meals": meals,
     }
