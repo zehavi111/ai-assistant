@@ -18,7 +18,11 @@ function refresh() {
   if (viewRoot) render(viewRoot);
 }
 
+let renderSeq = 0;
+const stale = (seq) => seq !== renderSeq;
+
 export async function render(viewEl) {
+  const seq = ++renderSeq;
   viewRoot = viewEl;
   viewEl.innerHTML = '';
   setHeader('Calendar');
@@ -31,8 +35,8 @@ export async function render(viewEl) {
       }, label)));
   viewEl.append(seg);
 
-  if (mode === 'day') await renderDay(viewEl);
-  else await renderWeek(viewEl);
+  if (mode === 'day') await renderDay(viewEl, seq);
+  else await renderWeek(viewEl, seq);
 }
 
 function navBar(title, onPrev, onNext) {
@@ -43,7 +47,7 @@ function navBar(title, onPrev, onNext) {
   );
 }
 
-async function renderDay(viewEl) {
+async function renderDay(viewEl, seq) {
   const t = todayISO();
   const isToday = anchor === t;
   viewEl.append(navBar(
@@ -57,6 +61,7 @@ async function renderDay(viewEl) {
     api.get(`/api/tasks?kind=task,project,call&status=open&top_level=true&date=${anchor}`),
     api.get(`/api/tasks?kind=recurring&date=${anchor}`),
   ]);
+  if (stale(seq)) return;
   const tasksThatDay = dueTasks.filter((x) => x.due_date === anchor);
   const routinesThatDay = recurring.filter(
     (x) => x.pending_dates && x.pending_dates.includes(anchor));
@@ -87,7 +92,7 @@ async function renderDay(viewEl) {
   ));
 }
 
-async function renderWeek(viewEl) {
+async function renderWeek(viewEl, seq) {
   const monday = mondayOf(anchor);
   const sunday = addDays(monday, 6);
   const t = todayISO();
@@ -102,6 +107,7 @@ async function renderWeek(viewEl) {
     api.get(`/api/tasks?kind=task,project,call&status=open&top_level=true`),
     api.get(`/api/tasks?kind=recurring&date=${sunday}`),
   ]);
+  if (stale(seq)) return;
 
   const card = el('div', { class: 'card' });
   for (let i = 0; i < 7; i++) {

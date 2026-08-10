@@ -13,13 +13,17 @@ function refresh() {
   if (viewRoot) render(viewRoot);
 }
 
+let renderSeq = 0;
+
 export async function render(viewEl) {
+  const seq = ++renderSeq;
   viewRoot = viewEl;
   viewEl.innerHTML = '';
   const t = todayISO();
   setHeader('Today', fmtFullDate(t));
 
   const data = await api.get(`/api/today?date=${t}`);
+  if (seq !== renderSeq) return;  // a newer render superseded this one
 
   // Overdue — attention first.
   if (data.overdue_tasks.length) {

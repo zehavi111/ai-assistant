@@ -62,11 +62,20 @@ function refresh() {
   if (viewRoot) render(viewRoot, currentParams);
 }
 
+// Renders await network data before appending. If a second render starts while
+// the first is in flight (tapping a segment on a slow connection), both would
+// append into the same node and the screen would show its contents twice.
+// Every render takes a sequence number and bails after each await if a newer
+// one has started.
+let renderSeq = 0;
+const stale = (seq) => seq !== renderSeq;
+
 export async function render(viewEl, params = []) {
+  const seq = ++renderSeq;
   viewRoot = viewEl;
   currentParams = params;
   viewEl.innerHTML = '';
-  if (params.length) return renderProjectDetail(viewEl, Number(params[0]));
+  if (params.length) return renderProjectDetail(viewEl, Number(params[0]), seq);
 
   // Paint the chrome before awaiting data — the tab bar should never be
   // missing while a request is in flight.
@@ -81,14 +90,15 @@ export async function render(viewEl, params = []) {
   viewEl.append(seg);
 
   sectionsCache = await sectionsFor(SECTION_KIND[segment]);
+  if (stale(seq)) return;
   if (getSectionFilter() !== 'all' && !sectionsCache.some((s) => String(s.id) === getSectionFilter())) {
     setSectionFilter('all');
   }
 
-  if (segment === 'tasks') await renderTasks(viewEl);
-  else if (segment === 'projects') await renderProjects(viewEl);
-  else if (segment === 'calls') await renderCalls(viewEl);
-  else await renderRoutines(viewEl);
+  if (segment === 'tasks') await renderTasks(viewEl, seq);
+  else if (segment === 'projects') await renderProjects(viewEl, seq);
+  else if (segment === 'calls') await renderCalls(viewEl, seq);
+  else await renderRoutines(viewEl, seq);
 }
 
 // Timed items first (by HH:MM), untimed after.
@@ -141,9 +151,11 @@ function groupBySection(items, fallbackLabel = 'Other') {
 }
 
 // ---- Plain tasks ----
-async function renderTasks(viewEl) {
+async function renderTasks(viewEl, seq) {
   const t = todayISO();
-  const all = (await api.get(`/api/tasks?kind=task&top_level=true&date=${t}`)).filter(matchesFilter);
+  const fetched = await api.get(`/api/tasks?kind=task&top_level=true&date=${t}`);
+  if (stale(seq)) return;
+  const all = fetched.filter(matchesFilter);
   const open = all.filter((x) => x.status === 'open');
   const doneToday = all.filter((x) => x.status === 'done');
 
@@ -188,8 +200,9 @@ function projectRow(p) {
   );
 }
 
-async function renderProjects(viewEl) {
+async function renderProjects(viewEl, seq) {
   const projects = await api.get('/api/tasks?kind=project');
+  if (stale(seq)) return;
   const open = projects.filter((p) => p.status === 'open');
   const done = projects.filter((p) => p.status === 'done');
   if (!open.length && !done.length) {
@@ -204,9 +217,10 @@ async function renderProjects(viewEl) {
   if (done.length) viewEl.append(collapsedSection('Done', done.map(projectRow)));
 }
 
-async function renderProjectDetail(viewEl, id) {
+async function renderProjectDetail(viewEl, id, seq) {
   const t = todayISO();
   const all = await api.get('/api/tasks?kind=project');
+  if (stale(seq)) return;
   const project = all.find((p) => p.id === id);
   if (!project) { location.hash = '#/tasks'; return; }
 
@@ -214,6 +228,7 @@ async function renderProjectDetail(viewEl, id) {
   setHeader(project.title, `${project.subtask_done}/${project.subtask_total} done`, back);
 
   const subs = await api.get(`/api/tasks?parent_id=${id}&date=${t}`);
+  if (stale(seq)) return;
   const openSubs = subs.filter((s) => s.status === 'open');
   const doneSubs = subs.filter((s) => s.status === 'done');
 
@@ -245,9 +260,10 @@ async function renderProjectDetail(viewEl, id) {
 }
 
 // ---- Routines (daily + recurring) ----
-async function renderRoutines(viewEl) {
+async function renderRoutines(viewEl, seq) {
   const t = todayISO();
   const items = await api.get(`/api/tasks?kind=daily,recurring&date=${t}`);
+  if (stale(seq)) return;
 
   if (!items.length) {
     viewEl.append(emptyState('🔁', 'Routines keep life on rails. Add a daily mission or recurring task.', 'New routine', quickAdd));
@@ -402,9 +418,11 @@ export function callRow(t, onChange = refresh) {
   return row;
 }
 
-async function renderCalls(viewEl) {
+async function renderCalls(viewEl, seq) {
   const t = todayISO();
-  const all = (await api.get(`/api/tasks?kind=call&date=${t}`)).filter(matchesFilter);
+  const fetched = await api.get(`/api/tasks?kind=call&date=${t}`);
+  if (stale(seq)) return;
+  const all = fetched.filter(matchesFilter);
   const open = all.filter((x) => x.status === 'open');
   const done = all.filter((x) => x.status === 'done');
 

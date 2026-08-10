@@ -19,4 +19,4 @@ jobs:
         run: |
           curl -sS -m 120 -o /dev/null \
             -w 'status=%{http_code} total=%{time_total}s\n' \
-            https://life-os-li19.onrender.com/api/health
+            https://life-os-eu.onrender.com/api/health

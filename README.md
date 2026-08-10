@@ -13,7 +13,7 @@ Your whole life, one app. A personal, mobile-first PWA that manages:
 
 No app store: open it in your phone's browser and **Add to Home Screen** — it installs and behaves like a native app.
 
-**Live:** https://life-os-li19.onrender.com (Render free tier + Neon Postgres)
+**Live:** https://life-os-eu.onrender.com (Render free tier, Frankfurt + Neon Postgres in the same region)
 
 ## Local run
 
