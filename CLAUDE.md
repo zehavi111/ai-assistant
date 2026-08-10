@@ -11,7 +11,7 @@ A single-user, mobile-first PWA for managing all aspects of a busy life:
 
 - **Tasks** — short tasks (due date + optional `"HH:MM"` time), long projects (with subtasks + progress + deadlines), daily missions (with streaks), recurring routines (every-N-days, weekly-by-weekday, or monthly). The Tasks screen has 4 segments: Tasks | Projects | Routines | Calls.
 - **Calls** — calls to make: `kind='call'` rows on the tasks table with a `phone` column; `tel:` + WhatsApp (`wa.me`) links, Contact Picker API on Chrome Android (manual name/phone fallback everywhere).
-- **Sections** — one global user-defined list (Work, Finance, …); any task/project/routine/call can carry a `section_id`. Managed from a sheet on the Tasks header.
+- **Sections** — user-defined lists (Work, Finance, …), **separate per module**: `Section.kind` ∈ `task|project|routine|call` (daily+recurring share `routine`). Managed from a sheet on the Tasks header, scoped to the active segment. Done items everywhere collapse under a tappable "Done (N) ▸" disclosure.
 - **Schedule** — day/week calendar of events; tasks/projects/calls with due dates and routine occurrences appear on the calendar.
 - **People** — follow-up reminders, calls/texts to send (`tel:`/`sms:` links), last-contacted tracking, snooze. Off the nav — lives in the More menu.
 - **Meals** — weekly B/L/D planner, meal library, grocery notes.
@@ -54,4 +54,4 @@ Render free tier via `render.yaml` + free Neon Postgres. Env vars: `DATABASE_URL
 
 Live service: `srv-d9qsc0u417fc738341tg` → https://life-os-li19.onrender.com. Auto-deploys on push to `main`.
 
-Version: `GET /api/version` returns the short SHA of the deployed commit (`RENDER_GIT_COMMIT` env, `"dev"` locally) — bumps automatically on every deployed commit, no manual step. Shown at the bottom of the More sheet (fetched fresh on each open, never cached by the SW). Note: for a few minutes after a service is first created, Render's edge intermittently returns 404 with `x-render-routing: no-server` while routing propagates — the app is fine, it settles on its own.
+Version: `GET /api/version` returns `0.0.<commit count on HEAD>` — numeric, bumps automatically on every commit, no manual step. Resolution order in `app/config.py`: `VERSION` file (written by the Render `buildCommand` via `git rev-list --count HEAD`, gitignored) → local `git rev-list --count` → `"dev"`. Shown at the bottom of the More sheet (fetched fresh on each open, never cached by the SW). Note: for a few minutes after a service is first created, Render's edge intermittently returns 404 with `x-render-routing: no-server` while routing propagates — the app is fine, it settles on its own.

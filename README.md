@@ -4,7 +4,7 @@ Your whole life, one app. A personal, mobile-first PWA that manages:
 
 - ✅ **Tasks** — quick tasks (due date **and time**), long projects with subtasks + deadlines, daily missions with 🔥 streaks, routines (daily / weekly / monthly / every-N-days) where each missed occurrence can be completed or skipped individually
 - 📞 **Calls** — calls you need to make: pick from phone contacts (Chrome Android) or type a name, one-tap `tel:` / WhatsApp, priority + due date/time
-- 🗂 **Sections** — your own labels (Work, Finance, …) to organize tasks, projects, routines, and calls
+- 🗂 **Sections** — your own labels (Work, Finance, …), a separate list per module (tasks / projects / routines / calls); done items tuck away under a collapsible "Done" group
 - 📅 **Schedule** — day & week calendar; tasks, project deadlines, routines, and calls all appear alongside events
 - 👋 **People** — follow-up reminders, one-tap `tel:`/`sms:`, snooze (in the More menu)
 - 🍽️ **Meals** — weekly breakfast/lunch/dinner planner, meal library, grocery notes
@@ -40,7 +40,7 @@ Free hosts wipe local disk on restart, so production data lives in a free cloud 
 
 > **Note:** Render's free tier sleeps after idle — first open after a while takes ~30s to wake. Not a bug.
 
-Every push to `main` auto-deploys. The running version (short commit SHA) is shown at the bottom of the **More** menu in the app — compare it with your latest commit to confirm a deploy landed.
+Every push to `main` auto-deploys. The running version (`0.0.N`, where N = commit count — bumps on every commit) is shown at the bottom of the **More** menu in the app — if it went up after a push, the deploy landed.
 
 ## Install on your phone
 

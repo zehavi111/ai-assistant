@@ -59,12 +59,14 @@ class TaskSkip(Base):
 
 
 class Section(Base):
-    """User-defined grouping label (Work, Finance, ...) shared by all task kinds."""
+    """User-defined grouping label (Work, Finance, ...), separate list per module."""
 
     __tablename__ = "sections"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
+    # 'task' | 'project' | 'routine' | 'call' — which module this section belongs to
+    kind: Mapped[str] = mapped_column(String(10), default="task")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
 

@@ -36,15 +36,18 @@ export async function render(viewEl) {
           el('div', { class: 'row-sub' }, 'Nothing scheduled today'))));
   viewEl.append(section('Schedule', 'calendar', schedCard));
 
-  // Daily missions with progress.
+  // Daily missions with progress; finished ones hide (the bar keeps the count).
   if (data.dailies.length) {
     const done = data.dailies.filter((d) => d.done_today).length;
+    const open = data.dailies.filter((d) => !d.done_today);
     const card = el('div', { class: 'card' },
       el('div', { class: 'dailies-progress' },
         el('div', { class: 'progress-label' }, `${done} of ${data.dailies.length} done`),
         el('div', { class: 'progress' },
           el('div', { style: `width:${data.dailies.length ? (done / data.dailies.length) * 100 : 0}%` }))),
-      data.dailies.map((d) => dailyRow(d)),
+      open.length ? open.map((d) => dailyRow(d))
+        : el('div', { class: 'row' }, el('div', { class: 'row-main' },
+            el('div', { class: 'row-sub' }, 'All missions done 🎉'))),
     );
     viewEl.append(section('Daily missions', 'tasks', card));
   }
@@ -88,7 +91,6 @@ function dailyRow(d) {
   return el('div', { class: 'row' + (d.done_today ? ' done' : '') },
     checkbox(d.done_today, () => toggleComplete(d, refresh)),
     el('div', { class: 'row-main' }, el('div', { class: 'row-title' }, d.title)),
-    d.streak_current > 0 ? el('span', { class: 'pill streak' }, `🔥 ${d.streak_current}`) : null,
   );
 }
 

@@ -72,17 +72,20 @@ class TaskOut(ORMModel):
 # ---- Sections ----
 class SectionCreate(BaseModel):
     name: str
+    kind: str = "task"  # task | project | routine | call
     sort_order: int = 0
 
 
 class SectionUpdate(BaseModel):
     name: str | None = None
+    kind: str | None = None
     sort_order: int | None = None
 
 
 class SectionOut(ORMModel):
     id: int
     name: str
+    kind: str
     sort_order: int
 
 

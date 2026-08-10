@@ -31,12 +31,21 @@ def run_light_migrations(engine) -> None:
     """create_all never adds columns to existing tables; patch them in. Idempotent."""
     from sqlalchemy import inspect, text
 
-    existing = {c["name"] for c in inspect(engine).get_columns("tasks")}
-    wanted = {"due_time": "VARCHAR(5)", "section_id": "INTEGER", "phone": "VARCHAR(50)"}
+    wanted = {
+        "tasks": {
+            "due_time": "VARCHAR(5)",
+            "section_id": "INTEGER",
+            "phone": "VARCHAR(50)",
+        },
+        "sections": {"kind": "VARCHAR(10) DEFAULT 'task'"},
+    }
+    insp = inspect(engine)
     with engine.begin() as conn:
-        for col, ddl in wanted.items():
-            if col not in existing:
-                conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}"))
+        for table, cols in wanted.items():
+            existing = {c["name"] for c in insp.get_columns(table)}
+            for col, ddl in cols.items():
+                if col not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
 
 
 def get_db():

@@ -14,8 +14,11 @@ router = APIRouter(
 
 
 @router.get("", response_model=list[SectionOut])
-def list_sections(db: Session = Depends(get_db)):
-    return list(db.scalars(select(Section).order_by(Section.sort_order, Section.name)))
+def list_sections(kind: str | None = None, db: Session = Depends(get_db)):
+    q = select(Section).order_by(Section.sort_order, Section.name)
+    if kind:
+        q = q.where(Section.kind == kind)
+    return list(db.scalars(q))
 
 
 @router.post("", response_model=SectionOut)

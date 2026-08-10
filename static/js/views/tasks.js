@@ -6,10 +6,25 @@ import {
 } from '../ui.js';
 
 let segment = localStorage.getItem('tasksSegment') || 'tasks';
-let sectionFilter = localStorage.getItem('tasksSectionFilter') || 'all';
 let sectionsCache = [];
 let currentParams = [];
 let viewRoot = null;
+
+// Each segment manages its own section list.
+const SECTION_KIND = { tasks: 'task', projects: 'project', routines: 'routine', calls: 'call' };
+
+// task.kind -> section kind
+function sectionKindFor(taskKind) {
+  return { task: 'task', project: 'project', daily: 'routine', recurring: 'routine', call: 'call' }[taskKind] || 'task';
+}
+
+function getSectionFilter() {
+  return localStorage.getItem(`sectionFilter-${segment}`) || 'all';
+}
+
+function setSectionFilter(v) {
+  localStorage.setItem(`sectionFilter-${segment}`, v);
+}
 
 export function quickAdd() {
   if (currentParams.length) {
@@ -35,9 +50,9 @@ export async function render(viewEl, params = []) {
   viewEl.innerHTML = '';
   if (params.length) return renderProjectDetail(viewEl, Number(params[0]));
 
-  sectionsCache = await api.get('/api/sections');
-  if (sectionFilter !== 'all' && !sectionsCache.some((s) => String(s.id) === sectionFilter)) {
-    sectionFilter = 'all';
+  sectionsCache = await api.get(`/api/sections?kind=${SECTION_KIND[segment]}`);
+  if (getSectionFilter() !== 'all' && !sectionsCache.some((s) => String(s.id) === getSectionFilter())) {
+    setSectionFilter('all');
   }
 
   const sectionsBtn = el('button', { class: 'header-action', onclick: openSectionsSheet }, '🗂 Sections');
@@ -64,16 +79,33 @@ function byTime(a, b) {
 
 function sectionFilterRow() {
   if (!sectionsCache.length) return null;
+  const current = getSectionFilter();
   const opts = [['all', 'All'], ...sectionsCache.map((s) => [String(s.id), s.name])];
   return el('div', { class: 'chip-group', style: 'margin:4px 0 8px' }, opts.map(([v, label]) =>
     el('button', {
-      class: v === sectionFilter ? 'active' : '',
-      onclick: () => { sectionFilter = v; localStorage.setItem('tasksSectionFilter', v); refresh(); },
+      class: v === current ? 'active' : '',
+      onclick: () => { setSectionFilter(v); refresh(); },
     }, label)));
 }
 
 function matchesFilter(x) {
-  return sectionFilter === 'all' || String(x.section_id ?? '') === sectionFilter;
+  const current = getSectionFilter();
+  return current === 'all' || String(x.section_id ?? '') === current;
+}
+
+// Collapsed-by-default disclosure for done items: "Done (N) ▸" toggles the card.
+function collapsedSection(label, rows) {
+  const card = el('div', { class: 'card', style: 'display:none' }, rows);
+  const arrow = el('span', {}, '▸');
+  const header = el('div', {
+    class: 'section-label tappable', style: 'cursor:pointer',
+    onclick: () => {
+      const open = card.style.display === 'none';
+      card.style.display = open ? '' : 'none';
+      arrow.textContent = open ? '▾' : '▸';
+    },
+  }, `${label} (${rows.length})`, arrow);
+  return el('div', { class: 'section' }, header, card);
 }
 
 // Group items by section: defined sections in order, then unsectioned last.
@@ -101,7 +133,6 @@ async function renderTasks(viewEl) {
     Upcoming: open.filter((x) => x.due_date && x.due_date > t)
       .sort((a, b) => a.due_date.localeCompare(b.due_date) || byTime(a, b)),
     Someday: open.filter((x) => !x.due_date),
-    Done: doneToday,
   };
 
   const filterRow = sectionFilterRow();
@@ -113,7 +144,10 @@ async function renderTasks(viewEl) {
     any = true;
     viewEl.append(section(label, items.map((task) => taskRow(task))));
   }
-  if (!any) {
+  if (doneToday.length) {
+    viewEl.append(collapsedSection('Done', doneToday.map((task) => taskRow(task))));
+  }
+  if (!any && !doneToday.length) {
     viewEl.append(emptyState('🌤️', 'Nothing on your plate. Enjoy it — or add something.', 'Add a task', quickAdd));
   }
 }
@@ -137,7 +171,8 @@ function projectRow(p) {
 async function renderProjects(viewEl) {
   const projects = await api.get('/api/tasks?kind=project');
   const open = projects.filter((p) => p.status === 'open');
-  if (!open.length) {
+  const done = projects.filter((p) => p.status === 'done');
+  if (!open.length && !done.length) {
     viewEl.append(emptyState('🏗️', 'No projects yet. Big things start here.', 'New project', quickAdd));
     return;
   }
@@ -146,6 +181,7 @@ async function renderProjects(viewEl) {
     const card = el('div', { class: 'card' }, items.map(projectRow));
     viewEl.append(label ? section(label, [card]) : card);
   }
+  if (done.length) viewEl.append(collapsedSection('Done', done.map(projectRow)));
 }
 
 async function renderProjectDetail(viewEl, id) {
@@ -175,7 +211,7 @@ async function renderProjectDetail(viewEl, id) {
   }, input));
 
   if (openSubs.length) viewEl.append(section('To do', openSubs.map((s) => taskRow(s))));
-  if (doneSubs.length) viewEl.append(section('Done', doneSubs.map((s) => taskRow(s))));
+  if (doneSubs.length) viewEl.append(collapsedSection('Done', doneSubs.map((s) => taskRow(s))));
   if (!subs.length) viewEl.append(emptyState('📝', 'Break this project into small steps.'));
 
   viewEl.append(el('button', {
@@ -198,6 +234,10 @@ async function renderRoutines(viewEl) {
     return;
   }
 
+  // Done-today dailies collapse away; open ones + recurring occurrences stay visible.
+  const doneToday = items.filter((x) => x.kind === 'daily' && x.done_today);
+  const active = items.filter((x) => !(x.kind === 'daily' && x.done_today));
+
   const rowsFor = (list) => {
     const dailies = list.filter((x) => x.kind === 'daily');
     const recurring = list.filter((x) => x.kind === 'recurring');
@@ -208,14 +248,17 @@ async function renderRoutines(viewEl) {
   };
 
   if (!sectionsCache.length) {
-    const dailies = items.filter((x) => x.kind === 'daily');
-    const recurring = items.filter((x) => x.kind === 'recurring');
+    const dailies = active.filter((x) => x.kind === 'daily');
+    const recurring = active.filter((x) => x.kind === 'recurring');
     if (dailies.length) viewEl.append(section('Daily missions', dailies.map((d) => routineRow(d))));
     if (recurring.length) viewEl.append(section('Recurring', recurring.flatMap((r) => recurringRows(r))));
-    return;
+  } else {
+    for (const [label, list] of groupBySection(active)) {
+      viewEl.append(section(label || 'Routines', rowsFor(list)));
+    }
   }
-  for (const [label, list] of groupBySection(items)) {
-    viewEl.append(section(label || 'Routines', rowsFor(list)));
+  if (doneToday.length) {
+    viewEl.append(collapsedSection('Done today', doneToday.map((d) => routineRow(d))));
   }
 }
 
@@ -257,8 +300,6 @@ function routineRow(t) {
       el('div', { class: 'row-title' }, t.title),
       el('div', { class: 'row-sub' }, ruleInWords(t) + (overdue ? ` · missed since ${fmtDate(t.next_due)}` : '')),
     ),
-    t.kind === 'daily' && t.streak_current > 0
-      ? el('span', { class: 'pill streak' }, `🔥 ${t.streak_current}`) : null,
     overdue ? el('span', { class: 'pill overdue' }, 'due') : null,
   );
 }
@@ -355,12 +396,12 @@ async function renderCalls(viewEl) {
     Upcoming: open.filter((x) => x.due_date && x.due_date > t)
       .sort((a, b) => a.due_date.localeCompare(b.due_date) || byTime(a, b)),
     Someday: open.filter((x) => !x.due_date),
-    Done: done,
   };
   for (const [label, items] of Object.entries(sections)) {
     if (!items.length) continue;
     viewEl.append(section(label, items.map((c) => callRow(c))));
   }
+  if (done.length) viewEl.append(collapsedSection('Done', done.map((c) => callRow(c))));
 }
 
 // ---- Shared row + complete logic (used by today.js too) ----
@@ -387,8 +428,6 @@ export function taskRow(t, onChange = refresh) {
       subBits.length ? el('div', { class: 'row-sub' }, subBits.join(' · ')) : null,
     ),
     t.section_name ? el('span', { class: 'pill' }, t.section_name) : null,
-    t.kind === 'daily' && t.streak_current > 0
-      ? el('span', { class: 'pill streak' }, `🔥 ${t.streak_current}`) : null,
   );
 }
 
@@ -409,7 +448,7 @@ export async function openTaskSheet(task, onSaved) {
   const isNew = !task.id;
   const kind = task.kind || 'task';
   const hasDue = ['task', 'project', 'call'].includes(kind);
-  const allSections = await api.get('/api/sections').catch(() => []);
+  const allSections = await api.get(`/api/sections?kind=${sectionKindFor(kind)}`).catch(() => []);
   const state = {
     recur_interval: task.recur_interval || 1,
     weekdays: task.recur_weekdays ? task.recur_weekdays.split(',').map(Number) : [],
@@ -563,9 +602,10 @@ export async function openTaskSheet(task, onSaved) {
   openSheet(isNew ? sheetTitle(kind) : 'Edit', form);
 }
 
-// ---- Sections management ----
+// ---- Sections management (per segment — each module has its own list) ----
 async function openSectionsSheet() {
-  const list = await api.get('/api/sections');
+  const kind = SECTION_KIND[segment] || 'task';
+  const list = await api.get(`/api/sections?kind=${kind}`);
 
   const input = el('input', { type: 'text', placeholder: '＋ New section (e.g. Work)' });
   const addForm = el('form', {
@@ -574,7 +614,7 @@ async function openSectionsSheet() {
       e.preventDefault();
       const name = input.value.trim();
       if (!name) return;
-      await api.post('/api/sections', { name, sort_order: list.length });
+      await api.post('/api/sections', { name, kind, sort_order: list.length });
       refresh();
       openSectionsSheet();
     },
@@ -621,7 +661,8 @@ async function openSectionsSheet() {
     rows.length ? el('div', { class: 'card', style: 'box-shadow:none' }, rows)
       : el('div', { class: 'row-sub', style: 'padding:8px 4px' }, 'No sections yet. Add Work, Finance, Personal…'),
   );
-  openSheet('Sections', content);
+  const segLabel = segment[0].toUpperCase() + segment.slice(1);
+  openSheet(`Sections · ${segLabel}`, content);
 }
 
 function titlePlaceholder(kind) {
