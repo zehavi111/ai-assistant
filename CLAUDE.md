@@ -57,6 +57,8 @@ Render free tier via `render.yaml` + free Neon Postgres. Env vars: `DATABASE_URL
 
 Live service: `srv-d9qsc0u417fc738341tg` → https://life-os-li19.onrender.com. Auto-deploys on push to `main` **only if the Render GitHub App is installed on the repo** — it is not, so deploys currently need a manual trigger (Render dashboard → Manual Deploy, or the Render MCP `trigger_deploy`).
 
+To move the database between regions, use `scripts/migrate_db.py` (`SOURCE_URL=… TARGET_URL=… python scripts/migrate_db.py`) — it copies every table, rewires the self-referencing `tasks.parent_id`, resets Postgres sequences, verifies row counts, and refuses a non-empty target.
+
 Free tier sleeps after ~15 min idle; the next request then waits ~30-60s for a cold start (confirmed in logs: shutdown exactly 15 min after the last request, ~20s to boot). `.github/workflows/keep-warm.yml` pings `/api/health` every 5 min from 05:00-21:59 UTC to prevent that, using ~520 of the 750 free instance-hours/month. Adding another free Render service would risk blowing that budget.
 
 Version: `GET /api/version` returns the contents of the tracked `VERSION` file (e.g. `0.0.8`), shown at the bottom of the More sheet (fetched fresh on each open, never cached by the SW). **Bump `VERSION` in every commit that changes the app** — it is the only way to tell which build is live. Do not try to derive it from git history: Render builds from a shallow clone, so `git rev-list --count HEAD` is always 1. Note: for a few minutes after a service is first created, Render's edge intermittently returns 404 with `x-render-routing: no-server` while routing propagates — the app is fine, it settles on its own.
