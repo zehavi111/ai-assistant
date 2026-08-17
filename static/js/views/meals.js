@@ -33,9 +33,9 @@ export async function render(viewEl) {
     el('button', { onclick: () => { weekStart = addDays(weekStart, 7); refresh(); } }, '›'),
   ));
 
-  const [plan, grocery] = await Promise.all([
+  const [plan, groceryItems] = await Promise.all([
     api.get(`/api/meal-plan?start=${weekStart}`),
-    api.get('/api/grocery'),
+    api.get('/api/grocery/items'),
   ]);
   const bySlot = {};
   for (const p of plan) bySlot[`${p.date}|${p.slot}`] = p;
@@ -59,15 +59,19 @@ export async function render(viewEl) {
       card));
   }
 
-  // Grocery notes — autosave on blur / debounce.
-  const ta = el('textarea', { placeholder: 'Milk, eggs, coffee…', style: 'border:none;background:transparent;width:100%;min-height:90px;padding:16px;font-size:15px' }, grocery.text || '');
-  let saveTimer = null;
-  const save = async () => { await api.put('/api/grocery', { text: ta.value }); };
-  ta.addEventListener('input', () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 800); });
-  ta.addEventListener('blur', save);
+  // Grocery lives on its own screen now — this is just the doorway + count.
+  const left = groceryItems.filter((it) => !it.checked).length;
   viewEl.append(el('div', { class: 'section' },
-    el('div', { class: 'section-label' }, 'Grocery notes'),
-    el('div', { class: 'card' }, ta)));
+    el('div', { class: 'section-label' }, 'Grocery'),
+    el('div', { class: 'card' },
+      el('div', {
+        class: 'row tappable', onclick: () => { location.hash = '#/grocery'; },
+      },
+        el('span', { style: 'font-size:20px' }, '🛒'),
+        el('div', { class: 'row-main' },
+          el('div', { class: 'row-title' }, 'Grocery list'),
+          el('div', { class: 'row-sub' }, left ? `${left} still to buy` : 'All bought')),
+        el('span', { style: 'color:var(--text-dim)' }, '›')))));
 }
 
 async function openSlotSheet(date, slot, entry, onSaved) {

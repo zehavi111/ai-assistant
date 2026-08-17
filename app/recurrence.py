@@ -30,12 +30,13 @@ def advance_due_date(
         weekdays = parse_weekdays(recur_weekdays)
         if not weekdays:
             return from_date + timedelta(days=7 * interval)
-        d = from_date + timedelta(days=1)
-        for _ in range(8):
-            if d.weekday() in weekdays:
-                return d
-            d += timedelta(days=1)
-        return d  # unreachable, defensive
+        # Remaining picked weekday this week, else the first picked weekday
+        # `interval` weeks on (interval=1 → every week, 2 → every other week).
+        later = [w for w in weekdays if w > from_date.weekday()]
+        if later:
+            return from_date + timedelta(days=later[0] - from_date.weekday())
+        monday = from_date - timedelta(days=from_date.weekday())
+        return monday + timedelta(days=7 * interval + weekdays[0])
     if recur_unit == "month":
         return _add_months_clamped(from_date, interval)
     return from_date + timedelta(days=interval)

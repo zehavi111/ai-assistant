@@ -6,7 +6,17 @@ from sqlalchemy import text
 
 from app import auth, models  # noqa: F401 — models import registers tables
 from app.db import Base, SessionLocal, engine, run_light_migrations
-from app.routers import events, meals, people, sections, study, tasks, today
+from app.routers import (
+    events,
+    grocery,
+    history,
+    meals,
+    people,
+    sections,
+    study,
+    tasks,
+    today,
+)
 
 app = FastAPI(title="Life OS", docs_url=None, redoc_url=None)
 
@@ -19,8 +29,10 @@ app.include_router(tasks.router)
 app.include_router(events.router)
 app.include_router(people.router)
 app.include_router(meals.router)
+app.include_router(grocery.router)
 app.include_router(study.router)
 app.include_router(sections.router)
+app.include_router(history.router)
 
 
 @app.get("/api/version")

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_auth
 from app.db import get_db
-from app.models import Section, Task, TaskCompletion, TaskSkip
+from app.models import RoutineLog, Section, Task, TaskCompletion, TaskSkip
 from app.recurrence import (
     advance_due_date,
     compute_streak,
@@ -30,6 +30,18 @@ def _resolved_dates(db: Session, task_id: int, since: date | None = None) -> set
         cq = cq.where(TaskCompletion.date >= since)
         sq = sq.where(TaskSkip.date >= since)
     return set(db.scalars(cq)) | set(db.scalars(sq))
+
+
+def _log(db: Session, t: Task, action: str, occurrence: date | None, reason: str | None = None) -> None:
+    """Journal a routine action. Append-only — never updated, never cascaded away."""
+    if t.kind not in ("daily", "recurring"):
+        return
+    db.add(
+        RoutineLog(
+            task_id=t.id, title=t.title, kind=t.kind, action=action,
+            occurrence_date=occurrence, reason=reason,
+        )
+    )
 
 
 def build_ctx(db: Session, tasks: list[Task], for_date: date | None = None) -> dict:
@@ -212,23 +224,18 @@ def create_task(
 ):
     today = date_param or date.today()  # client's local date when provided
     t = Task(**body.model_dump())
-    if t.kind == "daily":
+    if t.kind in ("daily", "recurring"):
         t.recur_unit = t.recur_unit or "day"
         t.recur_interval = t.recur_interval or 1
-        t.next_due = today
-    elif t.kind == "recurring":
-        t.recur_unit = t.recur_unit or "day"
-        t.recur_interval = t.recur_interval or 1
-        # First occurrence: today unless a weekly rule pushes it forward.
-        if t.recur_unit == "week":
-            if today.weekday() in parse_weekdays(t.recur_weekdays):
-                t.next_due = today
-            else:
-                t.next_due = advance_due_date(
-                    t.recur_unit, t.recur_interval, t.recur_weekdays, today
-                )
-        else:
-            t.next_due = today
+        # First occurrence: the chosen start date (default today), unless a
+        # weekly rule pushes it onto the next picked weekday.
+        start = body.next_due or today
+        weekdays = parse_weekdays(t.recur_weekdays)
+        if t.recur_unit == "week" and weekdays and start.weekday() not in weekdays:
+            start = advance_due_date(
+                t.recur_unit, t.recur_interval, t.recur_weekdays, start
+            )
+        t.next_due = start
     db.add(t)
     db.commit()
     return task_out(db, t)
@@ -244,6 +251,14 @@ def update_task(task_id: int, body: TaskUpdate, db: Session = Depends(get_db)):
         setattr(t, k, v)
     if "status" in data and t.kind in ("task", "project"):
         t.completed_at = datetime.utcnow() if data["status"] == "done" else None
+    # Rule edited without an explicit start date: pull next_due onto the new rule.
+    rule_changed = {"recur_unit", "recur_interval", "recur_weekdays"} & data.keys()
+    if rule_changed and "next_due" not in data and t.kind in ("daily", "recurring") and t.next_due:
+        weekdays = parse_weekdays(t.recur_weekdays)
+        if t.recur_unit == "week" and weekdays and t.next_due.weekday() not in weekdays:
+            t.next_due = advance_due_date(
+                t.recur_unit, t.recur_interval, t.recur_weekdays, t.next_due
+            )
     db.commit()
     return task_out(db, t)
 
@@ -253,6 +268,8 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "Task not found")
+    # routine_log is deliberately NOT cascaded — the history outlives the routine.
+    _log(db, t, "delete", None)
     # Manual cascade for subtasks + completions + skips (SQLite FKs off by default).
     for sub in db.scalars(select(Task).where(Task.parent_id == task_id)):
         db.execute(
@@ -287,6 +304,7 @@ def complete_task(
         if not exists:
             db.add(TaskCompletion(task_id=t.id, date=date_param))
             db.flush()  # session has autoflush off — make the row visible to queries
+            _log(db, t, "complete", date_param)
         _resync_next_due(db, t)
         _recompute_streak(db, t, date_param)
     else:
@@ -300,6 +318,7 @@ def complete_task(
 def skip_task(
     task_id: int,
     date_param: date = Query(..., alias="date"),
+    reason: str | None = Query(None, max_length=200),
     db: Session = Depends(get_db),
 ):
     """Decline an occurrence: resolve it without completing. Streaks untouched."""
@@ -308,14 +327,18 @@ def skip_task(
         raise HTTPException(404, "Task not found")
     if t.kind not in ("daily", "recurring"):
         raise HTTPException(400, "Only daily/recurring tasks can be skipped")
-    exists = db.scalar(
-        select(TaskSkip.id).where(
+    row = db.scalar(
+        select(TaskSkip).where(
             TaskSkip.task_id == t.id, TaskSkip.date == date_param
         )
     )
-    if not exists:
-        db.add(TaskSkip(task_id=t.id, date=date_param))
+    if row:
+        if reason:
+            row.reason = reason
+    else:
+        db.add(TaskSkip(task_id=t.id, date=date_param, reason=reason))
         db.flush()  # session has autoflush off — make the row visible to queries
+        _log(db, t, "skip", date_param, reason)
     _resync_next_due(db, t)
     db.commit()
     return task_out(db, t, date_param)
@@ -335,6 +358,7 @@ def unskip_task(
             TaskSkip.task_id == t.id, TaskSkip.date == date_param
         )
     )
+    _log(db, t, "unskip", date_param)
     _resync_next_due(db, t, undone_date=date_param)
     db.commit()
     return task_out(db, t, date_param)
@@ -355,6 +379,7 @@ def uncomplete_task(
                 TaskCompletion.task_id == t.id, TaskCompletion.date == date_param
             )
         )
+        _log(db, t, "uncomplete", date_param)
         _resync_next_due(db, t, undone_date=date_param)
         _recompute_streak(db, t, date_param)
     else:

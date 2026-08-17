@@ -38,6 +38,7 @@ def run_light_migrations(engine) -> None:
             "phone": "VARCHAR(50)",
         },
         "sections": {"kind": "VARCHAR(10) DEFAULT 'task'"},
+        "task_skips": {"reason": "VARCHAR(200)"},
     }
     insp = inspect(engine)
     with engine.begin() as conn:

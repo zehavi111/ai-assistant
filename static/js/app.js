@@ -5,12 +5,12 @@ import * as login from './views/login.js';
 import * as today from './views/today.js';
 import * as tasks from './views/tasks.js';
 import * as calendar from './views/calendar.js';
-import * as people from './views/people.js';
 import * as meals from './views/meals.js';
+import * as grocery from './views/grocery.js';
 import * as study from './views/study.js';
 
-const views = { login, today, tasks, calendar, people, meals, study };
-const MORE_ROUTES = ['meals', 'study', 'people'];
+const views = { login, today, tasks, calendar, meals, grocery, study };
+const MORE_ROUTES = ['meals', 'grocery', 'study'];
 
 let currentView = null;
 
@@ -88,8 +88,8 @@ function openMoreSheet() {
     style: 'text-align:center;color:var(--text-dim);font-size:12px;padding:10px 0 2px',
   }, 'Life OS');
   openSheet(null, el('div', { class: 'card', style: 'box-shadow:none' },
-    item('👋', 'People', () => { closeSheet(); location.hash = '#/people'; }),
     item('🍽️', 'Meals', () => { closeSheet(); location.hash = '#/meals'; }),
+    item('🛒', 'Grocery', () => { closeSheet(); location.hash = '#/grocery'; }),
     item('📚', 'Study', () => { closeSheet(); location.hash = '#/study'; }),
     item(dark ? '☀️' : '🌙', dark ? 'Light mode' : 'Dark mode', () => { toggleTheme(); closeSheet(); }),
     item('🚪', 'Log out', async () => {

@@ -1,6 +1,6 @@
 // Service worker: app-shell cache-first, API network-only.
 // Convention: bump CACHE version on ANY static file change.
-const CACHE = 'shell-v7';
+const CACHE = 'shell-v8';
 
 const SHELL = [
   '/',
@@ -14,8 +14,8 @@ const SHELL = [
   '/static/js/views/today.js',
   '/static/js/views/tasks.js',
   '/static/js/views/calendar.js',
-  '/static/js/views/people.js',
   '/static/js/views/meals.js',
+  '/static/js/views/grocery.js',
   '/static/js/views/study.js',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',

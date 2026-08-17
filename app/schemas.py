@@ -22,6 +22,7 @@ class TaskCreate(BaseModel):
     recur_unit: str | None = None
     recur_interval: int | None = None
     recur_weekdays: str | None = None
+    next_due: dt.date | None = None  # routines: first occurrence / anchor date
     sort_order: int = 0
 
 
@@ -67,6 +68,17 @@ class TaskOut(ORMModel):
     subtask_done: int = 0
     section_name: str | None = None
     pending_dates: list[str] = []
+
+
+class RoutineLogOut(ORMModel):
+    id: int
+    task_id: int
+    title: str
+    kind: str
+    action: str
+    occurrence_date: dt.date | None
+    reason: str | None
+    recorded_at: dt.datetime
 
 
 # ---- Sections ----
@@ -194,8 +206,38 @@ class MealSlotOut(BaseModel):
     meal_name: str | None  # resolved library name
 
 
-class GroceryBody(BaseModel):
-    text: str
+# ---- Grocery ----
+class GroceryItemCreate(BaseModel):
+    name: str
+    section_id: int | None = None
+    qty: str | None = None
+    sort_order: int = 0
+
+
+class GroceryItemUpdate(BaseModel):
+    name: str | None = None
+    section_id: int | None = None
+    qty: str | None = None
+    checked: bool | None = None
+    sort_order: int | None = None
+
+
+class GroceryItemOut(ORMModel):
+    id: int
+    name: str
+    section_id: int | None
+    qty: str | None
+    checked: bool
+    sort_order: int
+    section_name: str | None = None
+
+
+class GroceryCheckBody(BaseModel):
+    """Bulk check/uncheck. section_id None = the unsectioned group; all=every item."""
+
+    checked: bool
+    section_id: int | None = None
+    all: bool = False
 
 
 # ---- Study ----

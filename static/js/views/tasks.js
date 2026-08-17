@@ -225,7 +225,12 @@ async function renderProjectDetail(viewEl, id, seq) {
   if (!project) { location.hash = '#/tasks'; return; }
 
   const back = el('button', { class: 'header-action', onclick: () => { location.hash = '#/tasks'; } }, '‹ Projects');
-  setHeader(project.title, `${project.subtask_done}/${project.subtask_total} done`, back);
+  const edit = el('button', {
+    class: 'header-action',
+    onclick: () => openTaskSheet(project, () => render(viewRoot, currentParams)),
+  }, 'Edit');
+  setHeader(project.title, `${project.subtask_done}/${project.subtask_total} done`,
+    el('div', { class: 'header-actions' }, back, edit));
 
   const subs = await api.get(`/api/tasks?parent_id=${id}&date=${t}`);
   if (stale(seq)) return;
@@ -312,32 +317,55 @@ function recurringRows(t) {
 }
 
 export function ruleInWords(t) {
-  if (t.kind === 'daily') return 'Every day';
+  const time = t.due_time ? ` at ${t.due_time}` : '';
+  if (t.kind === 'daily') return `Every day${time}`;
   const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  if (t.recur_unit === 'week' && t.recur_weekdays) {
-    const days = t.recur_weekdays.split(',').map((n) => WD[Number(n)]).join(', ');
-    return `Every ${days}`;
-  }
   const n = t.recur_interval || 1;
-  if (t.recur_unit === 'month') return n === 1 ? 'Every month' : `Every ${n} months`;
-  if (t.recur_unit === 'week') return n === 1 ? 'Every week' : `Every ${n} weeks`;
-  return n === 1 ? 'Every day' : `Every ${n} days`;
+  if (t.recur_unit === 'week' && t.recur_weekdays) {
+    const days = t.recur_weekdays.split(',').map((x) => WD[Number(x)]).join(', ');
+    return (n === 1 ? `Every ${days}` : `Every ${n} weeks · ${days}`) + time;
+  }
+  if (t.recur_unit === 'month') return (n === 1 ? 'Every month' : `Every ${n} months`) + time;
+  if (t.recur_unit === 'week') return (n === 1 ? 'Every week' : `Every ${n} weeks`) + time;
+  return (n === 1 ? 'Every day' : `Every ${n} days`) + time;
 }
 
-function routineRow(t) {
+// Decline an occurrence (daily or recurring): resolve it without completing.
+// Optimistic like completing — the row leaves at once, the POST follows.
+export function skipRoutine(t, dateISO, rowEl, onChange = refresh) {
+  if (rowEl) rowEl.remove();
+  api.post(`/api/tasks/${t.id}/skip?date=${dateISO}`)
+    .then(() => toast('Declined', 'Undo', async () => {
+      await api.post(`/api/tasks/${t.id}/unskip?date=${dateISO}`);
+      onChange();
+    }))
+    .catch(() => onChange());
+}
+
+export function skipButton(onSkip) {
+  return el('button', {
+    class: 'text-btn', type: 'button',
+    onclick: (e) => { e.stopPropagation(); onSkip(); },
+  }, '✗ Skip');
+}
+
+export function routineRow(t, onChange = refresh) {
   const today = todayISO();
   const overdue = t.next_due && t.next_due < today;
+  // Declining resolves the occurrence that is actually outstanding.
+  const skipDate = overdue ? t.next_due : today;
   let row;
   row = el('div', {
     class: 'row tappable' + (t.done_today ? ' done' : ''),
-    onclick: () => openTaskSheet(t, refresh),
+    onclick: () => openTaskSheet(t, onChange),
   },
-    checkbox(t.done_today, () => toggleComplete(t, refresh, row)),
+    checkbox(t.done_today, () => toggleComplete(t, onChange, row)),
     el('div', { class: 'row-main' },
       el('div', { class: 'row-title' }, t.title),
       el('div', { class: 'row-sub' }, ruleInWords(t) + (overdue ? ` · missed since ${fmtDate(t.next_due)}` : '')),
     ),
     overdue ? el('span', { class: 'pill overdue' }, 'due') : null,
+    t.done_today ? null : skipButton(() => skipRoutine(t, skipDate, row, onChange)),
   );
   return row;
 }
@@ -367,13 +395,7 @@ export function occurrenceRow(t, dateISO, onChange = refresh) {
       el('div', { class: 'row-sub' }, `${label}${missed ? ' · missed' : ''} · ${ruleInWords(t)}`),
     ),
     missed ? el('span', { class: 'pill overdue' }, 'due') : null,
-    el('button', {
-      class: 'text-btn', type: 'button',
-      onclick: (e) => {
-        e.stopPropagation();
-        resolve('skip', 'unskip', 'Skipped');
-      },
-    }, '✗ Skip'),
+    skipButton(() => resolve('skip', 'unskip', 'Declined')),
   );
   return row;
 }
@@ -520,6 +542,7 @@ export async function openTaskSheet(task, onSaved) {
   const isNew = !task.id;
   const kind = task.kind || 'task';
   const hasDue = ['task', 'project', 'call'].includes(kind);
+  const isRoutine = kind === 'daily' || kind === 'recurring';
   const allSections = await sectionsFor(sectionKindFor(kind)).catch(() => []);
   const state = {
     recur_interval: task.recur_interval || 1,
@@ -530,6 +553,8 @@ export async function openTaskSheet(task, onSaved) {
     recur_choice: task.recur_unit === 'week' ? 'weekly'
       : task.recur_unit === 'month' ? 'monthly'
         : (task.recur_interval || 1) > 1 ? 'custom' : 'daily',
+    // Custom = "every N <unit>" with a free unit choice.
+    custom_unit: task.recur_unit === 'month' ? 'month' : task.recur_unit === 'week' ? 'week' : 'day',
   };
 
   const titleInput = el('input', { type: 'text', value: task.title || '', placeholder: titlePlaceholder(kind), autofocus: isNew });
@@ -593,14 +618,23 @@ export async function openTaskSheet(task, onSaved) {
       },
     }, w)));
   const intervalInput = el('input', { type: 'number', min: 1, value: state.recur_interval });
-  const intervalLabel = el('label', {}, state.recur_choice === 'monthly' ? 'Every N months' : 'Repeat every N days');
+  const unitSelect = el('select', {},
+    [['day', 'days'], ['week', 'weeks'], ['month', 'months']].map(([v, label]) =>
+      el('option', { value: v, selected: state.custom_unit === v }, label)));
+  unitSelect.value = state.custom_unit;
+  unitSelect.addEventListener('change', () => { state.custom_unit = unitSelect.value; });
+  const intervalLabel = el('label', {}, 'Repeat every');
+  const UNIT_WORD = { daily: 'days', weekly: 'weeks', monthly: 'months' };
   const applyRecurChoice = () => {
-    intervalWrap.style.display = state.recur_choice === 'custom' || state.recur_choice === 'monthly' ? '' : 'none';
-    weekdayWrap.style.display = state.recur_choice === 'weekly' ? '' : 'none';
-    intervalLabel.textContent = state.recur_choice === 'monthly' ? 'Every N months' : 'Repeat every N days';
+    const c = state.recur_choice;
+    intervalWrap.style.display = c === 'daily' ? 'none' : '';
+    unitSelect.style.display = c === 'custom' ? '' : 'none';
+    intervalSuffix.style.display = c === 'custom' ? 'none' : '';
+    intervalSuffix.textContent = UNIT_WORD[c] || 'days';
+    weekdayWrap.style.display = c === 'weekly' ? '' : 'none';
   };
   const recurTypeGroup = el('div', { class: 'chip-group', style: 'margin-bottom:12px' },
-    [['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['custom', 'Every N days']].map(([c, label]) =>
+    [['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['custom', 'Custom']].map(([c, label]) =>
       el('button', {
         type: 'button', class: state.recur_choice === c ? 'active' : '',
         onclick: (e) => {
@@ -610,9 +644,26 @@ export async function openTaskSheet(task, onSaved) {
           applyRecurChoice();
         },
       }, label)));
-  const intervalWrap = el('div', { class: 'field' }, intervalLabel, intervalInput);
+  const intervalSuffix = el('span', { class: 'unit-suffix' }, 'days');
+  const intervalWrap = el('div', { class: 'field' }, intervalLabel,
+    el('div', { class: 'inline-row' }, intervalInput, unitSelect, intervalSuffix));
   const weekdayWrap = el('div', { class: 'field' }, el('label', {}, 'On days'), weekdayPicker);
   applyRecurChoice();
+
+  // Routines: start/next date + optional time of day.
+  const startInput = el('input', { type: 'date', value: task.next_due || '' });
+  const routineTimeInput = el('input', { type: 'time', value: task.due_time || '' });
+  const routineWhenRow = el('div', { class: 'field-row' },
+    el('div', { class: 'field' }, el('label', {}, isNew ? 'Starts on' : 'Next occurrence'), startInput),
+    el('div', { class: 'field' }, el('label', {}, 'Time of day'), routineTimeInput),
+  );
+
+  const historyBtn = !isNew && isRoutine
+    ? el('button', {
+        type: 'button', class: 'more-options-toggle',
+        onclick: () => openHistorySheet(task, onSaved),
+      }, '🕘 History')
+    : null;
 
   // More options expander (quick-add stays one field).
   const moreWrap = el('div', { style: isNew ? 'display:none' : '' },
@@ -620,7 +671,9 @@ export async function openTaskSheet(task, onSaved) {
     kind !== 'project' ? el('div', { class: 'field' }, el('label', {}, 'Priority'), priGroup) : null,
     sectionGroup ? el('div', { class: 'field' }, el('label', {}, 'Section'), sectionGroup) : null,
     kind === 'recurring' ? el('div', { class: 'field' }, el('label', {}, 'Repeats'), recurTypeGroup, intervalWrap, weekdayWrap) : null,
+    isRoutine ? routineWhenRow : null,
     el('div', { class: 'field' }, el('label', {}, 'Notes'), notesInput),
+    historyBtn,
   );
   const moreToggle = isNew
     ? el('button', { type: 'button', class: 'more-options-toggle', onclick: () => { moreWrap.style.display = ''; moreToggle.remove(); } }, 'More options')
@@ -641,10 +694,16 @@ export async function openTaskSheet(task, onSaved) {
       };
       if (kind === 'call') payload.phone = phoneInput.value.trim() || null;
       if (kind === 'recurring') {
-        payload.recur_unit = { daily: 'day', weekly: 'week', monthly: 'month', custom: 'day' }[state.recur_choice];
+        payload.recur_unit = state.recur_choice === 'custom' ? state.custom_unit
+          : { daily: 'day', weekly: 'week', monthly: 'month' }[state.recur_choice];
         payload.recur_interval = state.recur_choice === 'daily' ? 1 : Number(intervalInput.value) || 1;
         payload.recur_weekdays = state.recur_choice === 'weekly' && state.weekdays.length
-          ? [...state.weekdays].sort().join(',') : null;
+          ? [...state.weekdays].sort((a, b) => a - b).join(',') : null;
+      }
+      if (isRoutine) {
+        // Routines carry their own time of day; next_due doubles as the start date.
+        payload.due_time = routineTimeInput.value || null;
+        if (startInput.value) payload.next_due = startInput.value;
       }
       if (isNew) {
         await api.post(`/api/tasks?date=${todayISO()}`, { ...payload, kind, parent_id: task.parent_id || null });
@@ -674,9 +733,54 @@ export async function openTaskSheet(task, onSaved) {
   openSheet(isNew ? sheetTitle(kind) : 'Edit', form);
 }
 
+// ---- Routine history (read-only journal; deliberately tucked away) ----
+const HISTORY_LABEL = {
+  complete: '✓ Done', skip: '✗ Declined', uncomplete: '↩ Un-done',
+  unskip: '↩ Un-declined', delete: '🗑 Routine deleted',
+};
+
+async function openHistorySheet(task, onSaved) {
+  const body = el('div', {}, el('div', { class: 'row-sub', style: 'padding:8px 4px' }, 'Loading…'));
+  openSheet(`History · ${task.title}`, el('div', {},
+    el('button', {
+      type: 'button', class: 'more-options-toggle',
+      onclick: () => openTaskSheet(task, onSaved),
+    }, '‹ Back to edit'),
+    body,
+  ));
+
+  let log;
+  try {
+    log = await api.get(`/api/routines/history?task_id=${task.id}&limit=100`);
+  } catch { return; }
+  body.innerHTML = '';
+  body.append(
+    log.length
+      ? el('div', { class: 'card', style: 'box-shadow:none;max-height:50vh;overflow-y:auto' },
+          log.map((e) => el('div', { class: 'row' },
+            el('div', { class: 'row-main' },
+              el('div', { class: 'row-title' }, HISTORY_LABEL[e.action] || e.action),
+              el('div', { class: 'row-sub' },
+                [e.occurrence_date ? fmtDate(e.occurrence_date) : null, e.reason]
+                  .filter(Boolean).join(' · ')),
+            ))))
+      : el('div', { class: 'empty' }, 'Nothing logged yet.'),
+    el('a', {
+      class: 'text-btn', style: 'display:inline-block;margin-top:8px',
+      href: '/api/routines/history.csv',
+    }, '⤓ Export every routine (CSV)'),
+  );
+}
+
 // ---- Sections management (per segment — each module has its own list) ----
-async function openSectionsSheet() {
-  const kind = SECTION_KIND[segment] || 'task';
+function openSectionsSheet() {
+  return openSectionsSheetFor(SECTION_KIND[segment] || 'task',
+    segment[0].toUpperCase() + segment.slice(1), refresh);
+}
+
+// Shared with the grocery screen, which keeps its own Section(kind='grocery') list.
+export async function openSectionsSheetFor(kind, label, onChange) {
+  const reopen = () => openSectionsSheetFor(kind, label, onChange);
   const list = await api.get(`/api/sections?kind=${kind}`);
 
   const input = el('input', { type: 'text', placeholder: '＋ New section (e.g. Work)' });
@@ -688,8 +792,8 @@ async function openSectionsSheet() {
       if (!name) return;
       await api.post('/api/sections', { name, kind, sort_order: list.length });
       invalidateSections();
-      refresh();
-      openSectionsSheet();
+      onChange();
+      reopen();
     },
   }, input);
 
@@ -703,11 +807,11 @@ async function openSectionsSheet() {
         el('button', {
           class: 'text-btn danger', type: 'button',
           onclick: async () => {
-            if (!(await confirmDialog(`Delete section "${s.name}"? Tasks keep their data, just lose the label.`))) return;
+            if (!(await confirmDialog(`Delete section "${s.name}"? Items keep their data, just lose the label.`))) return;
             await api.del(`/api/sections/${s.id}`);
             invalidateSections();
-            refresh();
-            openSectionsSheet();
+            onChange();
+            reopen();
           },
         }, 'Delete'),
       );
@@ -723,9 +827,9 @@ async function openSectionsSheet() {
           if (name && name !== s.name) {
             await api.patch(`/api/sections/${s.id}`, { name });
             invalidateSections();
-            refresh();
+            onChange();
           }
-          openSectionsSheet();
+          reopen();
         },
       }, renameInput));
       renameInput.focus();
@@ -739,8 +843,7 @@ async function openSectionsSheet() {
     rows.length ? el('div', { class: 'card', style: 'box-shadow:none' }, rows)
       : el('div', { class: 'row-sub', style: 'padding:8px 4px' }, 'No sections yet. Add Work, Finance, Personal…'),
   );
-  const segLabel = segment[0].toUpperCase() + segment.slice(1);
-  openSheet(`Sections · ${segLabel}`, content);
+  openSheet(`Sections · ${label}`, content);
 }
 
 function titlePlaceholder(kind) {

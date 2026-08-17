@@ -305,6 +305,15 @@ a { color: var(--accent); text-decoration: none; }
 .meals-strip { padding: var(--sp-3) var(--sp-4); display: flex; gap: var(--sp-4); flex-wrap: wrap; font-size: var(--fs-secondary); }
 .meals-strip b { color: var(--text-dim); font-size: var(--fs-label); margin-right: 4px; }
 
+/* ---- Header with more than one action ---- */
+.header-actions { display: flex; align-items: center; gap: var(--sp-2); }
+
+/* ---- "Repeat every [3] [weeks]" row ---- */
+.inline-row { display: flex; align-items: center; gap: var(--sp-2); }
+.inline-row input[type="number"] { width: 80px; }
+.inline-row select { flex: none; width: auto; }
+.unit-suffix { color: var(--text-dim); font-size: var(--fs-secondary); }
+
 @media (min-width: 640px) {
   .bottom-nav, .sheet { max-width: 640px; left: 50%; transform: translateX(-50%); }
   .sheet { transform: translateX(-50%) translateY(100%); }

@@ -58,7 +58,8 @@ def get_today(date_param: date = Query(..., alias="date"), db: Session = Depends
         )
     )
 
-    dailies = list(db.scalars(select(Task).where(Task.kind == "daily")))
+    # Routines carry an optional time of day — timed ones lead.
+    dailies = sorted(db.scalars(select(Task).where(Task.kind == "daily")), key=_time_key)
 
     # Calls due today or earlier.
     calls_due = sorted(
@@ -92,7 +93,7 @@ def get_today(date_param: date = Query(..., alias="date"), db: Session = Depends
         "events": [EventOut.model_validate(e).model_dump(mode="json") for e in events],
         "due_tasks": [
             task_out(db, t, d, ctx).model_dump(mode="json")
-            for t in sorted(due_tasks, key=_time_key) + recurring_due
+            for t in sorted(due_tasks, key=_time_key) + sorted(recurring_due, key=_time_key)
         ],
         "overdue_tasks": [
             task_out(db, t, d, ctx).model_dump(mode="json") for t in overdue_tasks

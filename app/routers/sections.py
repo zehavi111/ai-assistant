@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_auth
 from app.db import get_db
-from app.models import Section, Task
+from app.models import GroceryItem, Section, Task
 from app.schemas import SectionCreate, SectionOut, SectionUpdate
 
 router = APIRouter(
@@ -45,10 +45,15 @@ def delete_section(section_id: int, db: Session = Depends(get_db)):
     s = db.get(Section, section_id)
     if not s:
         raise HTTPException(404, "Section not found")
-    # Manual un-link (SQLite FKs off by default) — tasks keep their data.
+    # Manual un-link (SQLite FKs off by default) — rows keep their data.
     db.execute(
         Task.__table__.update()
         .where(Task.section_id == section_id)
+        .values(section_id=None)
+    )
+    db.execute(
+        GroceryItem.__table__.update()
+        .where(GroceryItem.section_id == section_id)
         .values(section_id=None)
     )
     db.delete(s)

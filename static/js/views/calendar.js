@@ -79,10 +79,15 @@ async function renderDay(viewEl, seq) {
       time: x.due_time,
       node: x.kind === 'call' ? callRow(x, refresh) : taskRow(x, refresh),
     })),
+    // Routines can carry a time of day too — they belong in the same chronology.
+    ...routinesThatDay.filter((x) => x.due_time).map((x) => ({
+      time: x.due_time, node: occurrenceRow(x, anchor, refresh),
+    })),
   ].sort((a, b) => a.time.localeCompare(b.time));
   const untimed = tasksThatDay.filter((x) => !x.due_time)
     .map((x) => (x.kind === 'call' ? callRow(x, refresh) : taskRow(x, refresh)));
-  const routineRows = routinesThatDay.map((x) => occurrenceRow(x, anchor, refresh));
+  const routineRows = routinesThatDay.filter((x) => !x.due_time)
+    .map((x) => occurrenceRow(x, anchor, refresh));
 
   viewEl.append(el('div', { class: 'card' },
     allDay.map((e) => eventRow(e)),

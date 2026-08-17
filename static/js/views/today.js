@@ -1,7 +1,9 @@
 // Today dashboard — the home screen.
 import { api } from '../api.js';
 import { el, setHeader, todayISO, fmtFullDate, daysBetween, emptyState, checkbox } from '../ui.js';
-import { openTaskSheet, toggleComplete, taskRow, callRow, occurrenceRow } from './tasks.js';
+import {
+  openTaskSheet, toggleComplete, taskRow, callRow, occurrenceRow, skipRoutine, skipButton,
+} from './tasks.js';
 
 let viewRoot = null;
 
@@ -92,10 +94,16 @@ export async function render(viewEl) {
 }
 
 function dailyRow(d) {
+  const t = todayISO();
+  // Declining resolves whatever occurrence is actually outstanding.
+  const skipDate = d.next_due && d.next_due < t ? d.next_due : t;
   let row;
-  row = el('div', { class: 'row' + (d.done_today ? ' done' : '') },
+  row = el('div', { class: 'row tappable' + (d.done_today ? ' done' : ''), onclick: () => openTaskSheet(d, refresh) },
     checkbox(d.done_today, () => toggleComplete(d, refresh, row)),
-    el('div', { class: 'row-main' }, el('div', { class: 'row-title' }, d.title)),
+    el('div', { class: 'row-main' },
+      el('div', { class: 'row-title' }, d.title),
+      d.due_time ? el('div', { class: 'row-sub' }, d.due_time) : null),
+    d.done_today ? null : skipButton(() => skipRoutine(d, skipDate, row, refresh)),
   );
   return row;
 }

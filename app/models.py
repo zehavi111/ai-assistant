@@ -56,6 +56,28 @@ class TaskSkip(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"))
     date: Mapped[dt.date] = mapped_column(Date)
+    reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class RoutineLog(Base):
+    """Append-only journal of routine actions — the substrate for later analysis.
+
+    Completions/skips are current *state* and die with the task; this is the
+    history. Deliberately no FK on task_id: rows outlive the routine they
+    describe, so the title/kind are snapshotted at write time.
+    """
+
+    __tablename__ = "routine_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(Integer, index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    kind: Mapped[str] = mapped_column(String(20))  # daily | recurring
+    # 'complete' | 'skip' | 'uncomplete' | 'unskip' | 'delete'
+    action: Mapped[str] = mapped_column(String(20))
+    occurrence_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    recorded_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
 
 
 class Section(Base):
@@ -117,6 +139,23 @@ class MealPlan(Base):
         ForeignKey("meals.id", ondelete="SET NULL"), nullable=True
     )
     custom_text: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+
+class GroceryItem(Base):
+    """One line on the grocery list. Sections are `Section` rows with kind='grocery'."""
+
+    __tablename__ = "grocery_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    section_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sections.id", ondelete="SET NULL"), nullable=True
+    )
+    qty: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    checked: Mapped[bool] = mapped_column(Boolean, default=False)
+    checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
 
 
 class StudyTopic(Base):

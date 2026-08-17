@@ -1,4 +1,4 @@
-"""Meal library, weekly plan, grocery note."""
+"""Meal library + weekly plan. The grocery list lives in routers/grocery.py."""
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,15 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_auth
 from app.db import get_db
-from app.models import KV, Meal, MealPlan
-from app.schemas import (
-    GroceryBody,
-    MealCreate,
-    MealOut,
-    MealSlotOut,
-    MealSlotSet,
-    MealUpdate,
-)
+from app.models import Meal, MealPlan
+from app.schemas import MealCreate, MealOut, MealSlotOut, MealSlotSet, MealUpdate
 
 router = APIRouter(prefix="/api", tags=["meals"], dependencies=[Depends(require_auth)])
 
@@ -106,21 +99,3 @@ def set_meal_slot(body: MealSlotSet, db: Session = Depends(get_db)):
         custom_text=row.custom_text,
         meal_name=meal_name,
     )
-
-
-@router.get("/grocery")
-def get_grocery(db: Session = Depends(get_db)):
-    row = db.get(KV, "grocery_note")
-    return {"text": row.value if row else ""}
-
-
-@router.put("/grocery")
-def set_grocery(body: GroceryBody, db: Session = Depends(get_db)):
-    row = db.get(KV, "grocery_note")
-    if not row:
-        row = KV(key="grocery_note", value=body.text)
-        db.add(row)
-    else:
-        row.value = body.text
-    db.commit()
-    return {"text": row.value}
