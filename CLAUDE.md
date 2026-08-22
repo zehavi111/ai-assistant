@@ -9,14 +9,16 @@
 
 A single-user, mobile-first PWA for managing all aspects of a busy life:
 
-- **Tasks** — short tasks (due date + optional `"HH:MM"` time), long projects (with subtasks + progress + deadlines), daily missions (with streaks), recurring routines (every-N-days, weekly-by-weekday, or monthly). The Tasks screen has 4 segments: Tasks | Projects | Routines | Calls.
+- **Tasks** — short tasks (due date + optional `"HH:MM"` time), long projects (with subtasks + progress + deadlines; editable from the project header's **Edit**), daily missions (with streaks), recurring routines. The Tasks screen has 4 segments: Tasks | Projects | Routines | Calls.
+- **Routines** — repeat every N days / weeks / months, or weekly on picked weekdays (with an N-week interval), plus a start/next date and an optional time of day (`due_time`). Every occurrence — daily or recurring, today's or a missed one — can be completed or **declined** (skipped) from its row.
 - **Calls** — calls to make: `kind='call'` rows on the tasks table with a `phone` column; `tel:` + WhatsApp (`wa.me`) links, Contact Picker API on Chrome Android (manual name/phone fallback everywhere).
-- **Sections** — user-defined lists (Work, Finance, …), **separate per module**: `Section.kind` ∈ `task|project|routine|call` (daily+recurring share `routine`). Managed from a sheet on the Tasks header, scoped to the active segment. Done items everywhere collapse under a tappable "Done (N) ▸" disclosure.
+- **Sections** — user-defined lists (Work, Finance, …), **separate per module**: `Section.kind` ∈ `task|project|routine|call|grocery` (daily+recurring share `routine`). Managed from a sheet on the Tasks/Grocery header, scoped to the active segment (`openSectionsSheetFor(kind, label, onChange)` in `tasks.js`). Done items everywhere collapse under a tappable "Done (N) ▸" disclosure.
 - **Schedule** — day/week calendar of events; tasks/projects/calls with due dates and routine occurrences appear on the calendar.
-- **People** — follow-up reminders, calls/texts to send (`tel:`/`sms:` links), last-contacted tracking, snooze. Off the nav — lives in the More menu.
-- **Meals** — weekly B/L/D planner, meal library, grocery notes.
+- **Meals** — weekly B/L/D planner, meal library, and a doorway to the grocery list (unbought count).
+- **Grocery** — its own screen in the More menu: items grouped by grocery sections, each item checkable (= bought) at any time, a **Check all / Uncheck all** per section, and **Clear bought** to sweep the basket off the list.
 - **Study** — queue of topics to study/deep-dive (queued / in progress / done).
 - **Today dashboard** — the home screen: overdue, today's schedule, daily missions, due tasks + pending routine occurrences, calls due, meals — in one glance.
+- **People** — removed from the app: no nav entry, no route, no view file. `app/routers/people.py`, the `Person` model, and the `people` table are deliberately left intact so nothing is lost — restoring the screen means re-adding `static/js/views/people.js` plus its route in `app.js`/`sw.js`.
 
 Installed on the phone via browser "Add to Home Screen" (no app store).
 
@@ -26,7 +28,9 @@ Installed on the phone via browser "Add to Home Screen" (no app store).
 - **DB:** SQLite locally (`data/app.db`, auto-created), Postgres (Neon) in production — switched by `DATABASE_URL`. `app/db.py` normalizes `postgres://` → `postgresql+psycopg://` and sets `pool_pre_ping` for Neon.
 - **Auth:** single password (`APP_PASSWORD` env) → signed httpOnly cookie (`itsdangerous`), 60-day expiry. `require_auth` dependency on every data router; login/health/static open.
 - **Frontend:** vanilla JS SPA in `static/` — NO build step, NO npm. Hash router in `js/app.js`; one ES module per screen in `js/views/`; shared helpers in `js/ui.js` (DOM builder `el()`, bottom sheets, toasts, date utils) and `js/api.js` (fetch wrapper, 401 → login). Design tokens in `css/tokens.css` (light + dark).
-- **Recurrence/streaks:** pure functions in `app/recurrence.py` (`recur_unit`: `day`/`interval`, `week`, `month` — monthly clamps to month end, so anchor day can drift on late completion). Template + `next_due` model — no instance rows; `next_due` = earliest *unresolved* occurrence (resolved = `task_completions` ∪ `task_skips`). Pending occurrences are enumerated on the fly (`pending_occurrences`, cap 7) into `TaskOut.pending_dates`; each can be completed or skipped (`POST /api/tasks/{id}/skip|unskip?date=`) individually. Streaks cached on the task row, recomputed on complete/uncomplete (daily kind only).
+- **Recurrence/streaks:** pure functions in `app/recurrence.py` (`recur_unit`: `day`/`interval`, `week`, `month` — monthly clamps to month end, so anchor day can drift on late completion). `week` + `recur_weekdays` + `recur_interval` N = the picked weekdays, every Nth week: after the last picked weekday of a week it jumps to that week's Monday + 7·N days, so the anchor week never drifts. Template + `next_due` model — no instance rows; `next_due` = earliest *unresolved* occurrence (resolved = `task_completions` ∪ `task_skips`) and doubles as the user-settable start date (`TaskCreate.next_due`). Pending occurrences are enumerated on the fly (`pending_occurrences`, cap 7) into `TaskOut.pending_dates`; each can be completed or declined (`POST /api/tasks/{id}/skip|unskip?date=&reason=`) individually. Streaks cached on the task row, recomputed on complete/uncomplete (daily kind only).
+- **Routine history:** `routine_log` is an append-only journal (`_log()` in `routers/tasks.py`) of every complete/skip/uncomplete/unskip/delete, with the title + kind snapshotted and **no FK** — it deliberately outlives the routine, so `delete_task` never cascades it away. Completions/skips remain the current *state*; the log is the history. Read it via `GET /api/routines/history` (filters: `task_id`, `action`, `since`, `until`, `limit`) or `GET /api/routines/history.csv` for spreadsheet analysis (`app/routers/history.py`). Cold path only — never touched by Today.
+- **Grocery:** `grocery_items` (name, qty, `section_id` → `Section(kind='grocery')`, `checked` + `checked_at`) in `app/routers/grocery.py`. Bulk `POST /api/grocery/check` ticks one section (`section_id: null` = the unsectioned group) or `{"all": true}` the whole list in one round trip; `POST /api/grocery/clear-checked` deletes what's been bought. The old free-text grocery note (`kv['grocery_note']`) is imported once, line-by-line, on the first `GET /api/grocery/items` that finds no items.
 - **Dates:** the client always sends its local date as `?date=YYYY-MM-DD`. Never use server-side "today" for user-facing date logic (server is UTC on Render).
 
 ## Conventions
@@ -35,7 +39,8 @@ Installed on the phone via browser "Add to Home Screen" (no app store).
 - New static JS/CSS files must also be added to the `SHELL` list in `sw.js`.
 - API is CRUD-simple JSON under `/api`; add new endpoints to the matching module router with `dependencies=[Depends(require_auth)]`.
 - **Never serialize a list of tasks with per-row queries.** `task_out(db, t, for_date, ctx)` takes a `ctx` from `build_ctx(db, rows, for_date)`, which prefetches completions, skips, sections, and subtask counts in a fixed number of queries. Without it a realistic Today payload cost 51 round trips instead of 12 — seconds of latency against a remote DB. Any new endpoint returning many tasks must build a ctx.
-- Times are `"HH:MM"` strings; dates are ISO date columns (not datetimes) wherever possible.
+- Times are `"HH:MM"` strings; dates are ISO date columns (not datetimes) wherever possible. Routines reuse `due_time` for their time of day (they have no `due_date`).
+- Anything a routine action should leave behind for later analysis goes through `_log()` — never write `routine_log` from a view or ad-hoc query, and never delete from it.
 - Priority scale everywhere: 0 none, 1 low, 2 medium, 3 high. Weekdays: Monday=0 CSV (e.g. `"0,2,4"`).
 - WhatsApp links are `https://wa.me/<digits>` — correct only when the stored phone is in international format (country code, no leading 00/+ needed after stripping). There is no web API for WhatsApp contact lists.
 - Keep it personal-tool simple: no over-abstraction, few files, no heavy test ceremony.

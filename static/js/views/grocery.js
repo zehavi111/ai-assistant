@@ -30,6 +30,7 @@ export async function render(viewEl) {
   const seq = ++renderSeq;
   viewRoot = viewEl;
   viewEl.innerHTML = '';
+  noneWrap = noneCard = null;  // old nodes are detached now — never append into them
 
   // Chrome + the add field paint before any request — typing never waits.
   setHeader('Grocery', null, el('button', {
@@ -97,7 +98,9 @@ export async function render(viewEl) {
     viewEl.append(el('button', {
       class: 'btn-ghost', style: 'margin-top:20px',
       onclick: async () => {
-        if (!(await confirmDialog(`Remove ${bought} bought item(s) from the list?`))) return;
+        // Count from the DOM — bulk checks since this render changed the number.
+        const n = viewEl.querySelectorAll('.row.done').length;
+        if (!(await confirmDialog(`Remove ${n} bought item(s) from the list?`))) return;
         await api.post('/api/grocery/clear-checked');
         refresh();
       },
